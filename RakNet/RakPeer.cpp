@@ -2914,24 +2914,36 @@ bool RakPeer::HandleRPCPacket( const char *data, int length, PlayerID playerId )
 
 	}*/
 
-	RakNet::BitStream bs((unsigned char*)data, length, false);
+	//RakNet::BitStream bs((unsigned char*)data, length, true);
 
-	bs.IgnoreBits(16);
+	RakNet::BitStream* bs = new RakNet::BitStream((unsigned char*)data, length, false);
+
+	bs->IgnoreBits(16);
 	unsigned int numdatbits = 0;
-	bs.ReadCompressed(numdatbits);
-	unsigned char* dtt = new unsigned char[BITS_TO_BYTES(bs.GetNumberOfUnreadBits())];
-	bs.ReadBits(dtt, numdatbits, false);
+	bs->ReadCompressed(numdatbits);
+	unsigned char* dtt = new unsigned char[BITS_TO_BYTES(bs->GetNumberOfUnreadBits())];
+	bs->ReadBits(dtt, numdatbits, false);
 
-	RakNet::BitStream bs2(dtt, (numdatbits / 8) + 1, false);
+	//delete bs;
+
+	//RakNet::BitStream bs2(dtt, (numdatbits / 8) + 1, true);
+	bs->Reset();
+	bs->Write((char*)dtt, numdatbits / 8 + 1);
 
 	delete[] dtt;
 
 	//int rpcID = (int)uniqueIdentifier;
 	__int64 rpcID = (__int64)uniqueIdentifier;
 
+	//if (rpcID == 255)
+	//	return false;
+
 	if (RPCHandleCallbackFunc)
-		RPCHandleCallbackFunc(this->botID, (__int32)rpcID, bs2, this);//вызов кастомной хуеты, в которой будет единый обработчик рпц для каждого
+		RPCHandleCallbackFunc(this->botID, (__int32)rpcID, *bs, this);//вызов кастомной хуеты, в которой будет единый обработчик рпц для каждого
 															 //бота отдельно
+
+	delete bs;
+	//return false;
 
 	if (rpcIndex==UNDEFINED_RPC_INDEX)
 	{
@@ -5042,13 +5054,13 @@ void* UpdateNetworkLoop( void* arguments )
 #endif
 
 
-	
+	/*
 #ifdef _WIN32
 #if (_WIN32_WINNT >= 0x0400) || (_WIN32_WINDOWS > 0x0400)
 	CloseHandle( timerHandle );
 #endif
 #endif
-
+*/
 
 	rakPeer->isMainLoopThreadActive = false;
 
