@@ -26,4 +26,4 @@ RU:
 4. Добавлен фикс для подключения к серверам на хостинге React
 5. Добавлен единый обработчик входящих RPC\
    5.1. `RakClientInterface::RegisterRPCHandle()`\
-   5.2. `void RPCHandler(unsigned __int64 botID, int RPC_ID, BitStream bs, RakPeerInterface);`
+   5.2. `void RPCHandler(unsigned __int64 botID, int RPC_ID, BitStream bs, RakPeerInterface* pRakPeer);`
