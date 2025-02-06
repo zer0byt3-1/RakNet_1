@@ -507,7 +507,7 @@ public:
 	};
 
 	//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-	void RegisterRPCHandle(void* func, __int32 botID);
+	void RegisterRPCHandle(void* func, unsigned __int64 botID);
 
 	//фейк пинг
 	//bool bUseFakePing - включить/выключить подмену пинга
@@ -515,8 +515,8 @@ public:
 	void SetFakePing(bool bUseFakePing, __int32 ping);
 
 protected:
-	void (*RPCHandleCallbackFunc)(int, int, RakNet::BitStream, RakPeerInterface*);
-	__int32 botID = -1;
+	void (*RPCHandleCallbackFunc)(unsigned __int64, int, RakNet::BitStream, RakPeerInterface*);
+	unsigned __int64 botID = -1;
 
 	bool bIsUseFakePing;
 	__int32 iFakePing;

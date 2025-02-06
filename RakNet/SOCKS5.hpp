@@ -112,6 +112,7 @@ namespace SOCKS5
 		SOCKS5_INVALID_VERSION_OR_STATUS,
 		SOCKS5_CONNECTION_ERROR,
 		SOCKS5_INVALID_VERSION_OR_RESULT,
+		SOCKS5_INVALID_NETADDR_OR_NETPORT,
 		SOCKS5_UNKNOWN_ERROR,
 		SOCKS5_INITIALIZED_SUCCESSFULLY
 	};
@@ -353,11 +354,27 @@ namespace SOCKS5
 				m_proxyServerAddr.sin_family = AF_INET;
 				m_proxyServerAddr.sin_port = rhead.usPort;
 				m_proxyServerAddr.sin_addr.s_addr = rhead.ulAddressIPv4;
-				m_bIsStarted = true;
+				
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: ѕрокси успешно инициализирован.\n");
+				printf("[CProxy::Start]: »нициализаци€ сетевого адреса...\n");
 #endif
-				return { true, SOCKS5Err::SOCKS5_INITIALIZED_SUCCESSFULLY };
+				if (m_proxyServerAddr.sin_port == 0 || m_proxyServerAddr.sin_addr.s_addr == 0)
+				{
+					m_bIsStarted = false;
+#if defined(SOCKS5_LOG)
+					printf("[CProxy::Start]: Ќе удалось инициализировать сетевой адрес или порт.\n");
+#endif
+					return { true, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
+				}
+				else
+				{
+					m_bIsStarted = true;
+#if defined(SOCKS5_LOG)
+					printf("[CProxy::Start]: —етевой адрес успешно инициализирован.\n");
+					printf("[CProxy::Start]: ѕрокси успешно инициализирован.\n");
+#endif
+					return { true, SOCKS5Err::SOCKS5_INITIALIZED_SUCCESSFULLY };
+				}
 			}
 
 #if defined(SOCKS5_LOG)
@@ -566,11 +583,27 @@ namespace SOCKS5
 				m_proxyServerAddr.sin_family = AF_INET;
 				m_proxyServerAddr.sin_port = rhead.usPort;
 				m_proxyServerAddr.sin_addr.s_addr = rhead.ulAddressIPv4;
-				m_bIsStarted = true;
+
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: ѕрокси успешно инициализирован.\n");
+				printf("[CProxy::Start]: »нициализаци€ сетевого адреса...\n");
 #endif
-				return { true, SOCKS5Err::SOCKS5_INITIALIZED_SUCCESSFULLY};
+				if (m_proxyServerAddr.sin_port == 0 || m_proxyServerAddr.sin_addr.s_addr == 0)
+				{
+					m_bIsStarted = false;
+#if defined(SOCKS5_LOG)
+					printf("[CProxy::Start]: Ќе удалось инициализировать сетевой адрес или порт.\n");
+#endif
+					return { true, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
+				}
+				else
+				{
+					m_bIsStarted = true;
+#if defined(SOCKS5_LOG)
+					printf("[CProxy::Start]: —етевой адрес успешно инициализирован.\n");
+					printf("[CProxy::Start]: ѕрокси успешно инициализирован.\n");
+#endif
+					return { true, SOCKS5Err::SOCKS5_INITIALIZED_SUCCESSFULLY };
+				}
 			}
 
 #if defined(SOCKS5_LOG)

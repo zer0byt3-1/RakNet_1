@@ -624,7 +624,7 @@ PlayerIndex RakClient::GetPlayerIndex( void )
 }
 
 //кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-void RakClient::RegisterRPCHandle(void* func, __int32 botID)
+void RakClient::RegisterRPCHandle(void* func, unsigned __int64 botID)
 {
 	RakPeer::RegisterRPCHandle(func, botID);
 }

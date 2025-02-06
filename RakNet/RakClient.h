@@ -405,7 +405,7 @@ public:
 	PlayerIndex GetPlayerIndex( void );
 
 	//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-	void RegisterRPCHandle(void* func, __int32 botID);
+	void RegisterRPCHandle(void* func, unsigned __int64 botID);
 	
 	//фейк пинг
 	//bool bUseFakePing - включить/выключить подмену пинга

@@ -2939,8 +2939,8 @@ bool RakPeer::HandleRPCPacket( const char *data, int length, PlayerID playerId )
 	//	return false;
 
 	if (RPCHandleCallbackFunc)
-		RPCHandleCallbackFunc(this->botID, (__int32)rpcID, *bs, this);//Ã¢Ã»Ã§Ã®Ã¢ ÃªÃ Ã±Ã²Ã®Ã¬Ã­Ã®Ã© ÃµÃ³Ã¥Ã²Ã», Ã¢ ÃªÃ®Ã²Ã®Ã°Ã®Ã© Ã¡Ã³Ã¤Ã¥Ã² Ã¥Ã¤Ã¨Ã­Ã»Ã© Ã®Ã¡Ã°Ã Ã¡Ã®Ã²Ã·Ã¨Ãª Ã°Ã¯Ã¶ Ã¤Ã«Ã¿ ÃªÃ Ã¦Ã¤Ã®Ã£Ã®
-															 //Ã¡Ã®Ã²Ã  Ã®Ã²Ã¤Ã¥Ã«Ã¼Ã­Ã®
+		RPCHandleCallbackFunc(this->botID, (__int32)rpcID, *bs, this);//âûçîâ êàñòîìíîé õóåòû, â êîòîðîé áóäåò åäèíûé îáðàáîò÷èê ðïö äëÿ êàæäîãî
+															 //áîòà îòäåëüíî
 
 	delete bs;
 	//return false;
@@ -4951,15 +4951,15 @@ bool RakPeer::RunUpdateCycle( void )
 	return true;
 }
 
-//ÃªÃ Ã±Ã²Ã®Ã¬Ã­Ã Ã¿ Ã§Ã Ã«Ã³Ã¯Ã  Ã¤Ã«Ã¿ Ã°Ã¥Ã£Ã¨Ã±Ã²Ã°Ã Ã¶Ã¨Ã¨ Ã¥Ã¤Ã¨Ã­Ã®Ã£Ã® ÃªÃ®Ã«Ã«Ã¡Ã¥ÃªÃ , Ã¢ ÃªÃ®Ã²Ã®Ã°Ã®Ã¬ Ã¡Ã³Ã¤Ã³Ã² Ã®Ã¡Ã°Ã Ã¡Ã Ã²Ã»Ã¢Ã Ã²Ã¼Ã±Ã¿ ÃÃÃ–
-void RakPeer::RegisterRPCHandle(void* func, __int32 botID) {
-	RPCHandleCallbackFunc = (void(*)(int, int, RakNet::BitStream, RakPeerInterface*))func;
+//êàñòîìíàÿ çàëóïà äëÿ ðåãèñòðàöèè åäèíîãî êîëëáåêà, â êîòîðîì áóäóò îáðàáàòûâàòüñÿ ÐÏÖ
+void RakPeer::RegisterRPCHandle(void* func, unsigned __int64 botID) {
+	RPCHandleCallbackFunc = (void(*)(unsigned __int64, int, RakNet::BitStream, RakPeerInterface*))func;
 	this->botID = botID;
 }
 
-//Ã´Ã¥Ã©Ãª Ã¯Ã¨Ã­Ã£
-//bool bUseFakePing - Ã¢ÃªÃ«Ã¾Ã·Ã¨Ã²Ã¼/Ã¢Ã»ÃªÃ«Ã¾Ã·Ã¨Ã²Ã¼ Ã¯Ã®Ã¤Ã¬Ã¥Ã­Ã³ Ã¯Ã¨Ã­Ã£Ã 
-//__in32 ping - Ã¯Ã¨Ã­Ã£, ÃªÃ®Ã²Ã®Ã°Ã»Ã© Ã¤Ã®Ã«Ã¦Ã¥Ã­ Ã¡Ã»Ã²Ã¼ Ã³ Ã¡Ã®Ã²Ã 
+//ôåéê ïèíã
+//bool bUseFakePing - âêëþ÷èòü/âûêëþ÷èòü ïîäìåíó ïèíãà
+//__in32 ping - ïèíã, êîòîðûé äîëæåí áûòü ó áîòà
 void RakPeer::SetFakePing(bool bUseFakePing, __int32 ping) {
 	this->bIsUseFakePing = bUseFakePing;
 	this->iFakePing = ping;
@@ -5054,13 +5054,13 @@ void* UpdateNetworkLoop( void* arguments )
 #endif
 
 
-	
+	/*
 #ifdef _WIN32
 #if (_WIN32_WINNT >= 0x0400) || (_WIN32_WINDOWS > 0x0400)
 	CloseHandle( timerHandle );
 #endif
 #endif
-
+*/
 
 	rakPeer->isMainLoopThreadActive = false;
 

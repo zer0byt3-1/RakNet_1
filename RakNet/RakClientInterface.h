@@ -399,7 +399,7 @@ public:
 	virtual PlayerIndex GetPlayerIndex( void )=0;
 
 	//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-	virtual void RegisterRPCHandle(void* func, __int32 botID) = 0;
+	virtual void RegisterRPCHandle(void* func, unsigned __int64 botID) = 0;
 
 	//фейк пинг
 	//bool bUseFakePing - включить/выключить подмену пинга
