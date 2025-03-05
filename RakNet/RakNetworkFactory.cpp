@@ -19,8 +19,8 @@
 #include "RakNetworkFactory.h"
 #include "RakClientInterface.h"
 #include "RakClient.h"
-#include "RakPeerInterface.h"
-#include "RakPeer.h"
+#include "rakpeerinterface.h"
+#include "rakpeer.h"
 
 RakClientInterface* RakNetworkFactory::GetRakClientInterface( void )
 {

@@ -40,20 +40,29 @@ RakClient::RakClient()
 RakClient::~RakClient()
 {}
 
+#if defined(_WIN32)
 #include <exception>
+#else
+#include <stdexcept>
+#endif
 
 #ifdef _MSC_VER
 #pragma warning( disable : 4100 ) // warning C4100: 'depreciated' : unreferenced formal parameter
 #endif
 bool RakClient::Connect( const char* host, unsigned short serverPort, unsigned short clientPort, unsigned int depreciated, int _threadSleepTimer, void* pProxy )
 {
+#if defined(_WIN32)
 	if (pProxy == nullptr)
 		throw std::exception("function [[ bool RakClient::Connect( const char* host, unsigned short serverPort, unsigned short clientPort, unsigned int depreciated, int _threadSleepTimer, void* pProxy ) ]] called with null pointer to proxy");
-	
+#else
+	if(pProxy == nullptr)
+		throw std::runtime_error("function [[ bool RakClient::Connect( const char* host, unsigned short serverPort, unsigned short clientPort, unsigned int depreciated, int _threadSleepTimer, void* pProxy ) ]] called with null pointer to proxy");
+#endif
+
 	RakPeer::Disconnect( 100 );
 	
 	/*fix react connect*/
-	auto GenRandNumber = [](__int32 a, __int32 b) -> __int32 {
+	auto GenRandNumber = [](std::int32_t a, std::int32_t b) -> std::int32_t {
 		std::random_device random_device;
 		std::mt19937 generator(random_device());
 		std::uniform_int_distribution<> distribution(a, b);
@@ -623,17 +632,12 @@ PlayerIndex RakClient::GetPlayerIndex( void )
 	return localPlayerIndex;
 }
 
-//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-void RakClient::RegisterRPCHandle(void* func, unsigned __int64 botID)
+void RakClient::RegisterRPCHandle(void* func, std::uint64_t botID)
 {
 	RakPeer::RegisterRPCHandle(func, botID);
 }
 
-//фейк пинг
-//bool bUseFakePing - включить/выключить подмену пинга
-//__in32 ping - пинг, который должен быть у бота
-
-void RakClient::SetFakePing(bool bUseFakePing, __int32 ping) {
+void RakClient::SetFakePing(bool bUseFakePing, std::int32_t ping) {
 	RakPeer::SetFakePing(bUseFakePing, ping);
 }
 

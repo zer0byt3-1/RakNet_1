@@ -57,11 +57,17 @@ RPCIndex RPCMap::GetIndexFromFunctionName(int *uniqueIdentifier)
 {
 	//if (*uniqueIdentifier > 0 && *uniqueIdentifier < 1000) 
 		//printf("%d\n", uniqueIdentifier);
+#if defined(_MSC_VER)
+#pragma warning(disable:4312)
+#endif
 	unsigned index;
 	for (index=0; index < rpcSet.Size(); index++)
-		if (rpcSet[index] && (int *)rpcSet[index]->uniqueIdentifier == uniqueIdentifier)
+		if (rpcSet[index] && reinterpret_cast<int*>(rpcSet[index]->uniqueIdentifier) == uniqueIdentifier)
 			return (RPCIndex) index;
 	return UNDEFINED_RPC_INDEX;
+#if defined(_MSC_VER)
+#pragma warning(default:4312)
+#endif
 }
 
 // Called from the user thread for the local system
@@ -114,7 +120,7 @@ void RPCMap::AddIdentifierAtIndex(RPCIndex insertionIndex)
 	unsigned existingNodeIndex;
 	RPCNode *node, *oldNode;
 
-	existingNodeIndex=GetIndexFromFunctionName((int *)insertionIndex);
+	existingNodeIndex=GetIndexFromFunctionName(reinterpret_cast<int*>(insertionIndex));
 
 	if (existingNodeIndex==insertionIndex)
 		return; // Already there

@@ -11,9 +11,25 @@
 
 #include <iostream>
 #include <string>
+#include <cstdint>
+#if defined(_WIN32)
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #pragma comment(lib, "WS2_32.lib")
+#else
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h> 
+#include <cstring> // std::memcpy
+/// Unix/Linux uses ints for sockets
+typedef int SOCKET;
+#define INVALID_SOCKET -1 
+#define SOCKET_ERROR -1
+#define closesocket close
+#endif
 
 //define this if you want to log the status of the connection to the proxy
 //#define SOCKS5_LOG
@@ -64,42 +80,7 @@ namespace SOCKS5
 		std::uint16_t		usPort;
 	};
 #pragma pack( pop )
-//	//start winsock
-//	auto StartWinSock(void) -> void
-//	{
-//		WSADATA wsa;
-//		auto res = WSAStartup(MAKEWORD(2, 1), &wsa);
-//		if (res == 0)
-//		{
-//#if defined(SOCKS5_LOG)
-//			printf("[SOCKS5]: WinSock2 успешно инициализирован.\n");
-//#endif
-//		}
-//		else
-//		{
-//#if defined(SOCKS5_LOG)
-//			printf("[SOCKS5->Error]: Не удалось инициализировать WinSock2. (WSAError: %d)\n", WSAGetLastError());
-//#endif
-//		}
-//	};
-//	//stop winsock
-//	auto StopWinSock(void) -> void
-//	{
-//		auto res = WSACleanup();
-//		if (res == 0)
-//		{
-//#if defined(SOCKS5_LOG)
-//			printf("[SOCKS5]: Использование WinSock2 успешно прекращено.\n");
-//#endif
-//
-//		}
-//		else
-//		{
-//#if defined(SOCKS5_LOG)
-//			printf("[SOCKS5->Error]: Не удалось прекратить использование WinSock2. (WSAError: %d)\n", WSAGetLastError());
-//#endif
-//		}
-//	};
+
 	//error codes
 	enum class SOCKS5Err
 	{
@@ -221,7 +202,7 @@ namespace SOCKS5
 			m_thisPORT = ProxyPort;
 
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Запуск прокси для хоста: %s:%s\n", m_thisIP.c_str(), m_thisPORT.c_str());
+			printf("[CProxy::Start]: Running a proxy for the host: %s:%s\n", m_thisIP.c_str(), m_thisPORT.c_str());
 #endif
 			
 			if (m_sockTCP != INVALID_SOCKET)
@@ -230,15 +211,22 @@ namespace SOCKS5
 			if ((m_sockTCP = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
 			{
 #if defined (SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Не удалось создать сокет. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Couldn't create socket. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				return { false, SOCKS5Err::SOCKS5_FAILED_TO_CREATE_SOCKET };
 			}
 
+#if defined(_WIN32)
 			sockaddr_in sa{};
 			sa.sin_addr.S_un.S_addr = m_proxyIP;
 			sa.sin_family = AF_INET;
 			sa.sin_port = m_proxyPort;
+#else
+			sockaddr_in sa{};
+			sa.sin_addr.s_addr = m_proxyIP;
+			sa.sin_family = AF_INET;
+			sa.sin_port = m_proxyPort;
+#endif
 
 			std::uint32_t timeout = 5000;//timeout of connect to proxy server
 
@@ -247,7 +235,7 @@ namespace SOCKS5
 			if (connect(m_sockTCP, (sockaddr*)&sa, sizeof(sa)) == INVALID_SOCKET)
 			{
 #if defined (SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Не удалось подключиться к серверу. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Couldn't connect to the server. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				return { false, SOCKS5Err::SOCKS5_FAILED_TO_CONNECT_TO_SERVER };
 			}
@@ -265,7 +253,7 @@ namespace SOCKS5
 			ahead.byteMethods[0] = 0;//no auth
 
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Аутентификация...\n");
+			printf("[CProxy::Start]: Authentication...\n");
 #endif
 
 			send(m_sockTCP, (char*)&ahead, sizeof(AuthRequestHeader), 0);
@@ -283,7 +271,7 @@ namespace SOCKS5
 			if (res == SOCKET_ERROR) 
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Ошибка аутентификации. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Authentication error. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_AUTHENTICATION_ERROR };
@@ -292,7 +280,7 @@ namespace SOCKS5
 			if (arhead.byteVersion != 5 || arhead.byteAuthMethod != 0) 
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Невалидная версия или метод -> ver: %d, method: %d\n", arhead.byteVersion, arhead.byteAuthMethod);
+				printf("[CProxy::Start->Error]: Invalid version or method -> ver: %d, method: %d\n", arhead.byteVersion, arhead.byteAuthMethod);
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_METHOD };
@@ -300,7 +288,7 @@ namespace SOCKS5
 			else
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Аутентификация выполнена успешно.\n");
+				printf("[CProxy::Start]: Authentication was completed successfully.\n");
 #endif
 			}
 		
@@ -321,7 +309,7 @@ namespace SOCKS5
 			head.usPort = 0;
 
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Подключение...\n");
+			printf("[CProxy::Start]: Connection...\n");
 #endif
 
 			send(m_sockTCP, (char*)&head, sizeof(ConnectRequestHeader), 0);
@@ -332,7 +320,7 @@ namespace SOCKS5
 			if (res2 == SOCKET_ERROR)
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Ошибка подключения. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Connection error. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_CONNECTION_ERROR };
@@ -341,7 +329,7 @@ namespace SOCKS5
 			if (rhead.byteVersion != 5 || rhead.byteResult != 0)
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Невалидная версия или результат -> ver: %d, result: %d\n", rhead.byteVersion, rhead.byteResult);
+				printf("[CProxy::Start->Error]: Invalid version or result -> ver: %d, result: %d\n", rhead.byteVersion, rhead.byteResult);
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_RESULT };
@@ -349,20 +337,20 @@ namespace SOCKS5
 			else
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Подключено.\n");
+				printf("[CProxy::Start]: Connected.\n");
 #endif
 				m_proxyServerAddr.sin_family = AF_INET;
 				m_proxyServerAddr.sin_port = rhead.usPort;
 				m_proxyServerAddr.sin_addr.s_addr = rhead.ulAddressIPv4;
 				
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Инициализация сетевого адреса...\n");
+				printf("[CProxy::Start]: Initializing a network address...\n");
 #endif
 				if (m_proxyServerAddr.sin_port == 0 || m_proxyServerAddr.sin_addr.s_addr == 0)
 				{
 					m_bIsStarted = false;
 #if defined(SOCKS5_LOG)
-					printf("[CProxy::Start]: Не удалось инициализировать сетевой адрес или порт.\n");
+					printf("[CProxy::Start]: Network address or port could not be initialized.\n");
 #endif
 					return { true, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
 				}
@@ -370,15 +358,15 @@ namespace SOCKS5
 				{
 					m_bIsStarted = true;
 #if defined(SOCKS5_LOG)
-					printf("[CProxy::Start]: Сетевой адрес успешно инициализирован.\n");
-					printf("[CProxy::Start]: Прокси успешно инициализирован.\n");
+					printf("[CProxy::Start]: The network address has been successfully initialized.\n");
+					printf("[CProxy::Start]: Proxy initialized successfully.\n");
 #endif
 					return { true, SOCKS5Err::SOCKS5_INITIALIZED_SUCCESSFULLY };
 				}
 			}
 
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start->Error]: Неизвестная ошибка.\n");
+			printf("[CProxy::Start->Error]: Unknown error.\n");
 #endif
 			closesocket(m_sockTCP);
 			return { false, SOCKS5Err::SOCKS5_UNKNOWN_ERROR };
@@ -394,7 +382,7 @@ namespace SOCKS5
 			m_thisPassword = ProxyPassword;
 			
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Запуск прокси для хоста: %s:%s, логин: %s, пароль: %s\n", m_thisIP.c_str(), m_thisPORT.c_str(), m_thisLogin.c_str(), m_thisPassword.c_str());
+			printf("[CProxy::Start]: Running a proxy for the host: %s:%s, пїЅпїЅпїЅпїЅпїЅ: %s, пїЅпїЅпїЅпїЅпїЅпїЅ: %s\n", m_thisIP.c_str(), m_thisPORT.c_str(), m_thisLogin.c_str(), m_thisPassword.c_str());
 #endif
 			
 			if (m_sockTCP != INVALID_SOCKET)
@@ -403,15 +391,22 @@ namespace SOCKS5
 			if ((m_sockTCP = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
 			{
 #if defined (SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Не удалось создать сокет. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Couldn't create socket. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				return { false, SOCKS5Err::SOCKS5_FAILED_TO_CREATE_SOCKET };
 			}
 
+#if defined(_WIN32)
 			sockaddr_in sa{};
 			sa.sin_addr.S_un.S_addr = m_proxyIP;
 			sa.sin_family = AF_INET;
 			sa.sin_port = m_proxyPort;
+#else
+			sockaddr_in sa{};
+			sa.sin_addr.s_addr = m_proxyIP;
+			sa.sin_family = AF_INET;
+			sa.sin_port = m_proxyPort;
+#endif
 
 			std::uint32_t timeout = 5000;//tineout of connect to proxy server
 
@@ -420,7 +415,7 @@ namespace SOCKS5
 			if (connect(m_sockTCP, (sockaddr*)&sa, sizeof(sa)) == INVALID_SOCKET)
 			{
 #if defined (SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Не удалось подключиться к серверу. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Couldn't connect to the server. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				return { false, SOCKS5Err::SOCKS5_FAILED_TO_CONNECT_TO_SERVER };
 			}
@@ -438,7 +433,7 @@ namespace SOCKS5
 			ahead.byteMethods[0] = 2;//auth with login and password
 
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Аутентификация...\n");
+			printf("[CProxy::Start]: Authentication...\n");
 #endif
 
 			send(m_sockTCP, (char*)&ahead, sizeof(AuthRequestHeader), 0);
@@ -456,7 +451,7 @@ namespace SOCKS5
 			if (res == SOCKET_ERROR) 
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Ошибка аутентификации. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Authentication error. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_AUTHENTICATION_ERROR };
@@ -465,7 +460,7 @@ namespace SOCKS5
 			if (arhead.byteVersion != 5 || arhead.byteAuthMethod != 2) 
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Невалидная версия или метод -> ver: %d, method: %d\n", arhead.byteVersion, arhead.byteAuthMethod);
+				printf("[CProxy::Start->Error]: Invalid version or method -> ver: %d, method: %d\n", arhead.byteVersion, arhead.byteAuthMethod);
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_METHOD };
@@ -473,7 +468,7 @@ namespace SOCKS5
 			else
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Аутентификация выполнена успешно.\n");
+				printf("[CProxy::Start]: Authentication was completed successfully.\n");
 #endif
 			}
 		
@@ -502,7 +497,7 @@ namespace SOCKS5
 			AuthRequestLen += (std::uint16_t)m_thisPassword.size();
 
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Авторизация.\n");
+			printf("[CProxy::Start]: Authorization.\n");
 #endif
 
 			send(m_sockTCP, AuthRequest, AuthRequestLen, 0);
@@ -513,7 +508,7 @@ namespace SOCKS5
 			if (res2 == SOCKET_ERROR)
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Ошибка авторизации. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Authorization error. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_AUTHORIZATION_ERROR };
@@ -522,7 +517,7 @@ namespace SOCKS5
 			if (arheada.byteVersion != 1 || arheada.byteStatus != 0)
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Невалидная версия или статус -> ver: %d, status: %d\n", arheada.byteVersion, arheada.byteStatus);
+				printf("[CProxy::Start->Error]: Invalid version or status -> ver: %d, status: %d\n", arheada.byteVersion, arheada.byteStatus);
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_STATUS };
@@ -530,7 +525,7 @@ namespace SOCKS5
 			else
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Авторизация выполнена успешно.\n");
+				printf("[CProxy::Start]: Authorization was completed successfully.\n");
 #endif
 			}
 
@@ -550,7 +545,7 @@ namespace SOCKS5
 			head.usPort = 0;
 
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Подключение...\n");
+			printf("[CProxy::Start]: Connection...\n");
 #endif
 
 			send(m_sockTCP, (char*)&head, sizeof(ConnectRequestHeader), 0);
@@ -561,7 +556,7 @@ namespace SOCKS5
 			if (res3 == SOCKET_ERROR)
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Ошибка подключения. (WSAError: %d)\n", WSAGetLastError());
+				printf("[CProxy::Start->Error]: Connection error. (WSAError: %d)\n", WSAGetLastError());
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_CONNECTION_ERROR };
@@ -570,7 +565,7 @@ namespace SOCKS5
 			if (rhead.byteVersion != 5 || rhead.byteResult != 0)
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Невалидная версия или результат -> ver: %d, result: %d\n", rhead.byteVersion, rhead.byteResult);
+				printf("[CProxy::Start->Error]: Invalid version or result -> ver: %d, result: %d\n", rhead.byteVersion, rhead.byteResult);
 #endif
 				closesocket(m_sockTCP);
 				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_RESULT };
@@ -578,20 +573,20 @@ namespace SOCKS5
 			else
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Подключено.\n");
+				printf("[CProxy::Start]: Connected.\n");
 #endif
 				m_proxyServerAddr.sin_family = AF_INET;
 				m_proxyServerAddr.sin_port = rhead.usPort;
 				m_proxyServerAddr.sin_addr.s_addr = rhead.ulAddressIPv4;
 
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Инициализация сетевого адреса...\n");
+				printf("[CProxy::Start]: Initializing a network address...\n");
 #endif
 				if (m_proxyServerAddr.sin_port == 0 || m_proxyServerAddr.sin_addr.s_addr == 0)
 				{
 					m_bIsStarted = false;
 #if defined(SOCKS5_LOG)
-					printf("[CProxy::Start]: Не удалось инициализировать сетевой адрес или порт.\n");
+					printf("[CProxy::Start]: Network address or port could not be initialized.\n");
 #endif
 					return { true, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
 				}
@@ -599,15 +594,15 @@ namespace SOCKS5
 				{
 					m_bIsStarted = true;
 #if defined(SOCKS5_LOG)
-					printf("[CProxy::Start]: Сетевой адрес успешно инициализирован.\n");
-					printf("[CProxy::Start]: Прокси успешно инициализирован.\n");
+					printf("[CProxy::Start]: The network address has been successfully initialized.\n");
+					printf("[CProxy::Start]: Proxy initialized successfully.\n");
 #endif
 					return { true, SOCKS5Err::SOCKS5_INITIALIZED_SUCCESSFULLY };
 				}
 			}
 
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start->Error]: Неизвестная ошибка.\n");
+			printf("[CProxy::Start->Error]: Unknown error.\n");
 #endif
 			closesocket(m_sockTCP);
 			return { false, SOCKS5Err::SOCKS5_UNKNOWN_ERROR };
@@ -623,7 +618,11 @@ namespace SOCKS5
 			udph->usReserved = 0;
 			udph->byteFragment = 0;
 			udph->byteAddressType = 1;
+#if defined(_WIN32)
 			udph->ulAddressIPv4 = to->sin_addr.S_un.S_addr;
+#else
+			udph->ulAddressIPv4 = to->sin_addr.s_addr;
+#endif
 			udph->usPort = to->sin_port;
 
 			auto len = sendto(socket, (char*)proxyData, data_len, 0, (const sockaddr*)&m_proxyServerAddr, sizeof(sockaddr_in));
@@ -635,7 +634,11 @@ namespace SOCKS5
 		int RecvFrom(SOCKET socket, char* buffer, std::int32_t bufferLength, std::int32_t flags, sockaddr_in* from, std::int32_t* fromlen) {
 			const std::int32_t udphsize = sizeof(UDPDatagramHeader);
 			char* data = new char[bufferLength + udphsize];
+#if defined(_WIN32)
 			auto len = recvfrom(socket, data, bufferLength + udphsize, flags, (sockaddr*)from, fromlen);
+#else
+			auto len = recvfrom(socket, data, bufferLength + udphsize, flags, (sockaddr*)from, (socklen_t*)fromlen);
+#endif
 			if (len <= 0)
 			{
 				delete[] data;
@@ -648,8 +651,13 @@ namespace SOCKS5
 				return len;
 			}
 			UDPDatagramHeader* udph = (UDPDatagramHeader*)data;
+#if defined(_WIN32)
 			from->sin_addr.S_un.S_addr = udph->ulAddressIPv4;
 			from->sin_port = udph->usPort;
+#else
+			from->sin_addr.s_addr = udph->ulAddressIPv4;
+			from->sin_port = udph->usPort;
+#endif
 			std::memcpy(buffer, (void*)((std::uintptr_t)data + udphsize), len - udphsize);
 			delete[] data;
 			return len - udphsize;
@@ -665,7 +673,7 @@ namespace SOCKS5
 			if (m_proxyIP == 0 || m_proxyPort == 0)
 			{
 #if defined(SOCKS5_LOG)
-				printf("[CProxy::Restart->Error]: Прокси еще не запускался. Рестарт не возможен.\n");
+				printf("[CProxy::Restart->Error]: The proxy has not started yet. Restart is not possible.\n");
 #endif
 			}
 			else

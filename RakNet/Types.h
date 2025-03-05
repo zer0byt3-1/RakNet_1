@@ -96,7 +96,18 @@
 
 # define HOST_ENDIAN_IS_LITTLE
 
+// x64
 #elif defined(__x86_64__) || defined(__amd64__) || defined(_M_X64) || defined(_M_AMD64) || defined(_AMD64_)
+
+# define HOST_ENDIAN_IS_LITTLE
+
+// linux x64 
+#elif defined(__linux__) && (defined(__x86_64__) || defined(__amd64__))
+
+# define HOST_ENDIAN_IS_LITTLE
+
+// ARM64
+#elif (defined(__aarch64__) || defined(_M_ARM64)) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 
 # define HOST_ENDIAN_IS_LITTLE
 
@@ -137,6 +148,11 @@ namespace cat
 # define LITTLE_ENDIAN
 
 #elif defined(__x86_64__) || defined(__amd64__) || defined(_M_X64) || defined(_M_AMD64) || defined(_AMD64_)
+
+# define LITTLE_ENDIAN
+
+// ARM64
+#elif (defined(__aarch64__) || defined(_M_ARM64)) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 
 # define LITTLE_ENDIAN
 

@@ -49,7 +49,7 @@ public:
 	/// You are responsible for overriding this function and returning a static string, which will identifier your parser.
 	/// This should return a static string
 	/// \return The name that you return.
-	virtual char *GetName(void) const=0;
+	virtual const char *GetName(void) const=0;
 
 	/// A callback for when \a playerId has connected to us.
 	/// \param[in] playerId The player that has connected.

@@ -21,7 +21,7 @@
 #define __RAK_CLIENT_INTERFACE_H
 #include "NetworkTypes.h"
 #include "PacketPriority.h"
-#include "RakPeerInterface.h"
+#include "rakpeerinterface.h"
 #include "BitStream.h"
 #include "RakNetStatistics.h" 
 
@@ -398,13 +398,9 @@ public:
 	/// Retrieve the player index corresponding to this client. 
 	virtual PlayerIndex GetPlayerIndex( void )=0;
 
-	//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-	virtual void RegisterRPCHandle(void* func, unsigned __int64 botID) = 0;
+	virtual void RegisterRPCHandle(void* func, std::uint64_t botID) = 0;
 
-	//фейк пинг
-	//bool bUseFakePing - включить/выключить подмену пинга
-	//__in32 ping - пинг, который должен быть у бота
-	virtual void SetFakePing(bool bUseFakePing, __int32 ping) = 0;
+	virtual void SetFakePing(bool bUseFakePing, std::int32_t ping) = 0;
 };
 
 #endif

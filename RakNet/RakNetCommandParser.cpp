@@ -1,7 +1,7 @@
 //#include "main.h"
 #include "RakNetCommandParser.h"
 #include "TransportInterface.h"
-#include "RakPeerInterface.h"
+#include "rakpeerinterface.h"
 #include "BitStream.h"
 #include <assert.h>
 #include <stdio.h>
@@ -272,7 +272,7 @@ bool RakNetCommandParser::OnCommand(const char *command, unsigned numParameters,
 
 	return true;
 }
-char *RakNetCommandParser::GetName(void) const
+const char *RakNetCommandParser::GetName(void) const
 {
 	return "RakNet";
 }

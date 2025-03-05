@@ -18,8 +18,9 @@
 #ifndef __RAK_PEER_H
 #define __RAK_PEER_H
 #pragma once
+#include <cstdint>
 #include "Export.h"
-#include "RakPeerInterface.h"
+#include "rakpeerinterface.h"
 #include "ReliabilityLayer.h"
 #include "RPCNode.h"
 #include "RSACrypt.h"
@@ -506,20 +507,16 @@ public:
 		enum ConnectMode {NO_ACTION, DISCONNECT_ASAP, DISCONNECT_ASAP_SILENTLY, DISCONNECT_ON_NO_ACK, REQUESTED_CONNECTION, HANDLING_CONNECTION_REQUEST, UNVERIFIED_SENDER, SET_ENCRYPTION_ON_MULTIPLE_16_BYTE_PACKET, CONNECTED} connectMode;
 	};
 
-	//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-	void RegisterRPCHandle(void* func, unsigned __int64 botID);
+	void RegisterRPCHandle(void* func, std::uint64_t botID);
 
-	//фейк пинг
-	//bool bUseFakePing - включить/выключить подмену пинга
-	//__in32 ping - пинг, который должен быть у бота
-	void SetFakePing(bool bUseFakePing, __int32 ping);
+	void SetFakePing(bool bUseFakePing, std::int32_t ping);
 
 protected:
-	void (*RPCHandleCallbackFunc)(unsigned __int64, int, RakNet::BitStream, RakPeerInterface*);
-	unsigned __int64 botID = -1;
+	void (*RPCHandleCallbackFunc)(std::uint64_t, std::int32_t, RakNet::BitStream, RakPeerInterface*);
+	std::uint64_t botID = -1;
 
 	bool bIsUseFakePing;
-	__int32 iFakePing;
+	std::int32_t iFakePing;
 #ifdef _WIN32
 	// friend unsigned __stdcall RecvFromNetworkLoop(LPVOID arguments);
 	friend void __stdcall ProcessPortUnreachable( const unsigned int binaryAddress, const unsigned short port, RakPeer *rakPeer );

@@ -17,6 +17,7 @@
 
 #ifndef __RAK_PEER_INTERFACE_H
 #define __RAK_PEER_INTERFACE_H
+#include <cstdint>
 #include "PacketPriority.h"
 #include "NetworkTypes.h"
 #include "Export.h"
@@ -465,14 +466,9 @@ public:
 	/// \internal
 	virtual RPCMap *GetRPCMap( const PlayerID playerId)=0;
 
+	virtual void RegisterRPCHandle(void* func, std::uint64_t botID) = 0;
 
-	//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-	virtual void RegisterRPCHandle(void* func, unsigned __int64 botID) = 0;
-
-	//фейк пинг
-	//bool bUseFakePing - включить/выключить подмену пинга
-	//__in32 ping - пинг, который должен быть у бота
-	virtual void SetFakePing(bool bUseFakePing, __int32 ping) = 0;
+	virtual void SetFakePing(bool bUseFakePing, std::int32_t ping) = 0;
 };
 
 #endif

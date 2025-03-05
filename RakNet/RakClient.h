@@ -23,7 +23,7 @@
 #ifndef __RAK_CLIENT_H
 #define __RAK_CLIENT_H
 #include <random>
-#include "RakPeer.h"
+#include "rakpeer.h"
 #include "RakClientInterface.h" 
 // #pragma deprecated(RakClient)
 
@@ -404,13 +404,9 @@ public:
 	/// Retrieve the player index corresponding to this client. 
 	PlayerIndex GetPlayerIndex( void );
 
-	//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-	void RegisterRPCHandle(void* func, unsigned __int64 botID);
+	void RegisterRPCHandle(void* func, std::uint64_t botID);
 	
-	//фейк пинг
-	//bool bUseFakePing - включить/выключить подмену пинга
-	//__in32 ping - пинг, который должен быть у бота
-	void SetFakePing(bool bUseFakePing, __int32 ping);
+	void SetFakePing(bool bUseFakePing, std::int32_t ping);
 private:
 	void* pRakClientProxy = nullptr;
 

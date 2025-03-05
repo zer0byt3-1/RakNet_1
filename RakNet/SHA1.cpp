@@ -282,7 +282,7 @@ void CSHA1::Final()
 void CSHA1::ReportHash( char *szReport, unsigned char uReportType )
 {
 	unsigned char i = 0;
-	char szTemp[ 4 ];
+	char szTemp[ 5 ];
 
 	if ( uReportType == REPORT_HEX )
 	{

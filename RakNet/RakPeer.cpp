@@ -16,7 +16,7 @@
 
 //#include "main.h"
 #include "RakNetDefines.h"
-#include "RakPeer.h"
+#include "rakpeer.h"
 #include "NetworkTypes.h"
 
 #ifdef __USE_IO_COMPLETION_PORTS
@@ -2933,14 +2933,18 @@ bool RakPeer::HandleRPCPacket( const char *data, int length, PlayerID playerId )
 	delete[] dtt;
 
 	//int rpcID = (int)uniqueIdentifier;
-	__int64 rpcID = (__int64)uniqueIdentifier;
+	
+	#if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__)
+	std::int64_t rpcID = (std::int64_t)uniqueIdentifier;
+	#elif defined(__i386__) || defined(_M_IX86) || defined(__arm__)
+	std::int32_t rpcID = (std::int32_t)uniqueIdentifier;
+	#endif
 
 	//if (rpcID == 255)
 	//	return false;
 
 	if (RPCHandleCallbackFunc)
-		RPCHandleCallbackFunc(this->botID, (__int32)rpcID, *bs, this);//вызов кастомной хуеты, в которой будет единый обработчик рпц для каждого
-															 //бота отдельно
+		RPCHandleCallbackFunc(this->botID, (std::int32_t)rpcID, *bs, this);
 
 	delete bs;
 	//return false;
@@ -4060,7 +4064,7 @@ void ProcessNetworkPacket( const unsigned int binaryAddress, const unsigned shor
 		unsigned char c[3];
 
 		c[0] = ID_OPEN_CONNECTION_REQUEST;
-		*(WORD*)&c[1] = (*(WORD*)&data[1] ^ /*NETCODE_CONNCOOKIELULZ*/0x6969);
+		*(std::int16_t*)&c[1] = (*(std::int16_t*)&data[1] ^ /*NETCODE_CONNCOOKIELULZ*/0x6969);
 
 		unsigned i;
 		for (i=0; i < rakPeer->messageHandlerList.Size(); i++)
@@ -4669,7 +4673,7 @@ bool RakPeer::RunUpdateCycle( void )
 					else if ( (unsigned char)data[0] == ID_INTERNAL_PING && byteSize == sizeof(unsigned char)+sizeof(RakNetTime) )
 					{
 						if (bIsUseFakePing)
-							*reinterpret_cast<__int32*>(&data[1]) += (GetAveragePing(playerId) - iFakePing);
+							*reinterpret_cast<std::int32_t*>(&data[1]) += (GetAveragePing(playerId) - iFakePing);
 					
 						RakNet::BitStream inBitStream( (unsigned char *) data, byteSize, false );
 						inBitStream.IgnoreBits(8);
@@ -4951,16 +4955,12 @@ bool RakPeer::RunUpdateCycle( void )
 	return true;
 }
 
-//кастомная залупа для регистрации единого коллбека, в котором будут обрабатываться РПЦ
-void RakPeer::RegisterRPCHandle(void* func, unsigned __int64 botID) {
-	RPCHandleCallbackFunc = (void(*)(unsigned __int64, int, RakNet::BitStream, RakPeerInterface*))func;
+void RakPeer::RegisterRPCHandle(void* func, std::uint64_t botID) {
+	RPCHandleCallbackFunc = (void(*)(std::uint64_t, std::int32_t, RakNet::BitStream, RakPeerInterface*))func;
 	this->botID = botID;
 }
 
-//фейк пинг
-//bool bUseFakePing - включить/выключить подмену пинга
-//__in32 ping - пинг, который должен быть у бота
-void RakPeer::SetFakePing(bool bUseFakePing, __int32 ping) {
+void RakPeer::SetFakePing(bool bUseFakePing, std::int32_t ping) {
 	this->bIsUseFakePing = bUseFakePing;
 	this->iFakePing = ping;
 }
