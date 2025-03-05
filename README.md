@@ -11,7 +11,7 @@ EN:
 4. Added a fix for connecting to servers on React hosting
 5. Added a unified handler for incoming RPC\
    5.1. `RakClientInterface::RegisterRPCHandle()`\
-   5.2. `void RPCHandler(int botID, int RPC_ID, BitStream bs, RakPeerInterface* pRakPeer);`
+   5.2. `void RPCHandler(std::uint64_t botID, std::int32_t RPC_ID, BitStream bs, RakPeerInterface* pRakPeer);`
 
 <!--
 RU:
@@ -26,4 +26,4 @@ RU:
 4. Добавлен фикс для подключения к серверам на хостинге React
 5. Добавлен единый обработчик входящих RPC\
    5.1. `RakClientInterface::RegisterRPCHandle()`\
-   5.2. `void RPCHandler(int botID, int RPC_ID, BitStream bs, RakPeerInterface);`
+   5.2. `void RPCHandler(std::uint64_t botID, std::int32_t RPC_ID, BitStream bs, RakPeerInterface* pRakPeer);`
