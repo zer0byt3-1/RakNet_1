@@ -49,11 +49,11 @@ extern "C" RAK_DLL_EXPORT void* GetRakPeerInterface() {
 }
 
 extern "C" RAK_DLL_EXPORT void* DestroyRakClientInterface(void* i) {
-  return RakNetworkFactory::GetRakPeerInterface();
+  return RakNetworkFactory::DestroyRakClientInterface();
 }
 
 extern "C" RAK_DLL_EXPORT void* DestroyRakPeerInterface(void* i) {
-  return RakNetworkFactory::GetRakPeerInterface();
+  return RakNetworkFactory::DestroyRakPeerInterface();
 }
 #endif
 
