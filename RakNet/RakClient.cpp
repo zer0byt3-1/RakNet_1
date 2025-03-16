@@ -40,25 +40,11 @@ RakClient::RakClient()
 RakClient::~RakClient()
 {}
 
-#if defined(_WIN32)
-#include <exception>
-#else
-#include <stdexcept>
-#endif
-
 #ifdef _MSC_VER
 #pragma warning( disable : 4100 ) // warning C4100: 'depreciated' : unreferenced formal parameter
 #endif
 bool RakClient::Connect( const char* host, unsigned short serverPort, unsigned short clientPort, unsigned int depreciated, int _threadSleepTimer, void* pProxy )
 {
-#if defined(_WIN32)
-	if (pProxy == nullptr)
-		throw std::exception("function [[ bool RakClient::Connect( const char* host, unsigned short serverPort, unsigned short clientPort, unsigned int depreciated, int _threadSleepTimer, void* pProxy ) ]] called with null pointer to proxy");
-#else
-	if(pProxy == nullptr)
-		throw std::runtime_error("function [[ bool RakClient::Connect( const char* host, unsigned short serverPort, unsigned short clientPort, unsigned int depreciated, int _threadSleepTimer, void* pProxy ) ]] called with null pointer to proxy");
-#endif
-
 	RakPeer::Disconnect( 100 );
 	
 	/*fix react connect*/
