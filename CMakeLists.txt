@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.15)
+project(SAMPRakNet)
+
+if(DEFINED SAMPRAKNET_SHARED_LIBS)
+    set(BUILD_SHARED_LIBS ${SAMPRAKNET_SHARED_LIBS})
+endif()
+
+file(GLOB_RECURSE SAMPRAKNET_SRC "RakNet/*.cpp")
+if (BUILD_SHARED_LIBS) 
+  add_library(SAMPRakNet SHARED ${SAMPRAKNET_SRC})
+  target_compile_definitions(SAMPRakNet PRIVATE _RAKNET_DLL)
+else()
+  add_library(SAMPRakNet STATIC ${SAMPRAKNET_SRC})
+  target_compile_definitions(SAMPRakNet PRIVATE _RAKNET_LIB)
+endif()

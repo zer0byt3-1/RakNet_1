@@ -1,5 +1,6 @@
 /// \file
-/// \brief Factory class for RakServerInterface, RakClientInterface, and RakPeerInterface
+/// \brief Factory class for RakServerInterface, RakClientInterface, and
+/// RakPeerInterface
 ///
 /// This file is part of RakNet Copyright 2003 Kevin Jenkins.
 ///
@@ -23,20 +24,37 @@
 class RakClientInterface;
 class RakPeerInterface;
 
-class RAK_DLL_EXPORT RakNetworkFactory
-{
-public:
-	// For DLL's, these are user classes that you might want to new and delete.
-	// You can't instantiate exported classes directly in your program.  The instantiation
-	// has to take place inside the DLL.  So these functions will do the news and deletes for you.
-	// if you're using the source or static library you don't need these functions, but can use them if you want.
-	static RakClientInterface* GetRakClientInterface( void );
-	static RakPeerInterface* GetRakPeerInterface( void );
+class RAK_DLL_EXPORT RakNetworkFactory {
+ public:
+  // For DLL's, these are user classes that you might want to new and delete.
+  // You can't instantiate exported classes directly in your program.  The
+  // instantiation has to take place inside the DLL.  So these functions will do
+  // the news and deletes for you. if you're using the source or static library
+  // you don't need these functions, but can use them if you want.
+  static RakClientInterface* GetRakClientInterface(void);
+  static RakPeerInterface* GetRakPeerInterface(void);
 
-
-	// To delete the object returned by the Get functions above.
-	static void DestroyRakClientInterface( RakClientInterface* i );
-	static void DestroyRakPeerInterface( RakPeerInterface* i );
+  // To delete the object returned by the Get functions above.
+  static void DestroyRakClientInterface(RakClientInterface* i);
+  static void DestroyRakPeerInterface(RakPeerInterface* i);
 };
+
+#ifdef _RAKNET_DLL
+extern "C" RAK_DLL_EXPORT void* GetRakClientInterface() {
+  return RakNetworkFactory::GetRakClientInterface();
+}
+
+extern "C" RAK_DLL_EXPORT void* GetRakPeerInterface() {
+  return RakNetworkFactory::GetRakPeerInterface();
+}
+
+extern "C" RAK_DLL_EXPORT void DestroyRakClientInterface(void* i) {
+  RakNetworkFactory::DestroyRakClientInterface(i);
+}
+
+extern "C" RAK_DLL_EXPORT void DestroyRakPeerInterface(void* i) {
+  RakNetworkFactory::DestroyRakPeerInterface(i);
+}
+#endif
 
 #endif
