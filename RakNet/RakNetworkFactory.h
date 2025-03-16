@@ -48,12 +48,12 @@ extern "C" RAK_DLL_EXPORT void* GetRakPeerInterface() {
   return RakNetworkFactory::GetRakPeerInterface();
 }
 
-extern "C" RAK_DLL_EXPORT void* DestroyRakClientInterface(void* i) {
-  return RakNetworkFactory::DestroyRakClientInterface();
+extern "C" RAK_DLL_EXPORT void DestroyRakClientInterface(void* i) {
+  RakNetworkFactory::DestroyRakClientInterface(i);
 }
 
-extern "C" RAK_DLL_EXPORT void* DestroyRakPeerInterface(void* i) {
-  return RakNetworkFactory::DestroyRakPeerInterface();
+extern "C" RAK_DLL_EXPORT void DestroyRakPeerInterface(void* i) {
+  RakNetworkFactory::DestroyRakPeerInterface(i);
 }
 #endif
 
