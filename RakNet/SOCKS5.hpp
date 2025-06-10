@@ -138,7 +138,7 @@ namespace SOCKS5
 			m_proxyPort{},
 			m_thisIP{ "NULL" },
 			m_thisPORT{ "NULL" },
-			m_thisLogin{ "NLL" },
+			m_thisLogin{ "NULL" },
 			m_thisPassword{ "NULL" },
 			m_bIsStarted(false),
 			m_bIsValidReceiving(false),
