@@ -352,7 +352,7 @@ namespace SOCKS5
 #if defined(SOCKS5_LOG)
 					printf("[CProxy::Start]: Network address or port could not be initialized.\n");
 #endif
-					return { true, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
+					return { false, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
 				}
 				else
 				{
@@ -382,7 +382,7 @@ namespace SOCKS5
 			m_thisPassword = ProxyPassword;
 			
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Running a proxy for the host: %s:%s, �����: %s, ������: %s\n", m_thisIP.c_str(), m_thisPORT.c_str(), m_thisLogin.c_str(), m_thisPassword.c_str());
+			printf("[CProxy::Start]: Running a proxy for the host: %s:%s, login: %s, password: %s\n", m_thisIP.c_str(), m_thisPORT.c_str(), m_thisLogin.c_str(), m_thisPassword.c_str());
 #endif
 			
 			if (m_sockTCP != INVALID_SOCKET)
@@ -588,7 +588,7 @@ namespace SOCKS5
 #if defined(SOCKS5_LOG)
 					printf("[CProxy::Start]: Network address or port could not be initialized.\n");
 #endif
-					return { true, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
+					return { false, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
 				}
 				else
 				{
