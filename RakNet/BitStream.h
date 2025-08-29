@@ -374,7 +374,7 @@ namespace RakNet
 		inline void SetReadOffset( int newReadOffset ) {readOffset=newReadOffset;}
 		
 		///Returns the number of bits left in the stream that haven't been read
-		inline int GetNumberOfUnreadBits( void ) const {return numberOfBitsUsed - readOffset;}
+		inline int GetNumberOfUnreadBits( void ) const { return readOffset > numberOfBitsUsed ? 0 : numberOfBitsUsed - readOffset; }
 		
 		/// Makes a copy of the internal data for you \a _data will point to
 		/// the stream. Returns the length in bits of the stream. Partial
@@ -1010,9 +1010,9 @@ namespace RakNet
 	/// Read a bool from a bitstream
 	/// \param[in] var The value to read
 	template <>
-		inline bool BitStream::Read(bool &var)
+		inline bool BitStream::Read(bool& var)
 	{
-		if ( readOffset + 1 > numberOfBitsUsed )
+		if (GetNumberOfUnreadBits() == 0)
 			return false;
 
 		if ( data[ readOffset >> 3 ] & ( 0x80 >> ( readOffset++ % 8 ) ) )   // Is it faster to just write it out here?

@@ -172,7 +172,7 @@ void BitStream::Write( const char* input, const int numberOfBytes )
 	if ((numberOfBitsUsed & 7) == 0)
 	{
 		AddBitsAndReallocate( BYTES_TO_BITS(numberOfBytes) );
-		memcpy(data+BITS_TO_BYTES(numberOfBitsUsed), input, numberOfBytes);
+		memcpy_s(data+BITS_TO_BYTES(numberOfBitsUsed), numberOfBytes, input, numberOfBytes);
 		numberOfBitsUsed+=BYTES_TO_BITS(numberOfBytes);
 	}
 	else
@@ -187,10 +187,13 @@ void BitStream::Write( BitStream *bitStream)
 }
 void BitStream::Write( BitStream *bitStream, int numberOfBits )
 {
+	if (numberOfBits > bitStream->GetNumberOfUnreadBits())
+		return;
+
 	AddBitsAndReallocate( numberOfBits );
 	int numberOfBitsMod8;
 
-	while (numberOfBits-->0 && bitStream->readOffset + 1 <= bitStream->numberOfBitsUsed)
+	while (numberOfBits-->0)
 	{
 		numberOfBitsMod8 = numberOfBitsUsed & 7;
 		if ( numberOfBitsMod8 == 0 )
@@ -225,7 +228,7 @@ bool BitStream::Read( char* output, const int numberOfBytes )
 	// Optimization:
 	if ((readOffset & 7) == 0)
 	{
-		if ( readOffset + ( numberOfBytes << 3 ) > numberOfBitsUsed )
+		if (GetNumberOfUnreadBits() < (numberOfBytes << 3))
 			return false;
 
 		// Write the data
@@ -285,6 +288,10 @@ void BitStream::Write1( void )
 // Returns true if the next data read is a 1, false if it is a 0
 bool BitStream::ReadBit( void )
 {
+	if (GetNumberOfUnreadBits() == 0) {
+		return false;
+	}
+
 	return ( bool ) ( data[ readOffset >> 3 ] & ( 0x80 >> ( readOffset++ & 7 ) ) );
 }
 
@@ -317,7 +324,7 @@ bool BitStream::ReadAlignedBytes( unsigned char* output, const int numberOfBytes
 	// Byte align
 	AlignReadToByteBoundary();
 
-	if ( readOffset + ( numberOfBytesToRead << 3 ) > numberOfBitsUsed )
+	if (GetNumberOfUnreadBits() < (numberOfBytesToRead << 3))
 		return false;
 
 	// Write the data
@@ -465,10 +472,10 @@ bool BitStream::ReadBits( unsigned char* output, int numberOfBitsToRead, const b
 #ifdef _DEBUG
 	assert( numberOfBitsToRead > 0 );
 #endif
-	if (numberOfBitsToRead<=0)
-	  return false;
+	if (numberOfBitsToRead <= 0)
+		return false;
 	
-	if ( readOffset + numberOfBitsToRead > numberOfBitsUsed )
+	if (GetNumberOfUnreadBits() < numberOfBitsToRead)
 		return false;
 		
 	int readOffsetMod8;

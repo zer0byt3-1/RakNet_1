@@ -624,6 +624,9 @@ bool RakPeer::Connect( const char* host, unsigned short remotePort, char* passwo
 // --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void RakPeer::Disconnect( unsigned int blockDuration, unsigned char orderingChannel )
 {
+	if (remoteSystemList == nullptr)
+		return;
+
 	unsigned i,j;
 	bool anyActive;
 	RakNetTime startWaitingTime;
@@ -2922,7 +2925,10 @@ bool RakPeer::HandleRPCPacket( const char *data, int length, PlayerID playerId )
 	unsigned int numdatbits = 0;
 	bs->ReadCompressed(numdatbits);
 	unsigned char* dtt = new unsigned char[BITS_TO_BYTES(bs->GetNumberOfUnreadBits())];
-	bs->ReadBits(dtt, numdatbits, false);
+	if (bs->ReadBits(dtt, numdatbits, false) == false) {
+		delete[] dtt;
+		return false;
+	}
 
 	//delete bs;
 
