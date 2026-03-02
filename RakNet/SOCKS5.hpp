@@ -9,9 +9,14 @@
 /* https://www.rfc-es.org/rfc/rfc1928-es.txt */
 /* https://www.rfc-es.org/rfc/rfc1929-es.txt */
 
+#ifndef __SOCKS5_HPP
+#define __SOCKS5_HPP
+
 #include <iostream>
 #include <string>
 #include <cstdint>
+#include <functional>
+#include <chrono>
 #if defined(_WIN32)
 #include <WinSock2.h>
 #include <WS2tcpip.h>
@@ -21,15 +26,36 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <unistd.h> 
 #include <cstring> // std::memcpy
-/// Unix/Linux uses ints for sockets
-typedef int SOCKET;
-#define INVALID_SOCKET -1 
-#define SOCKET_ERROR -1
-#define closesocket close
 #endif
+
+// unified methods
+namespace
+{
+	int GetLastError()
+	{
+#if defined(_WIN32)
+		return WSAGetLastError();
+#else
+		return errno;
+#endif
+	};
+
+#if defined(_WIN32)
+	#define EWOULDBLOCK WSAEWOULDBLOCK
+#else
+	#define EWOULDBLOCK EAGAIN
+	#define closesocket close
+	#define INVALID_SOCKET -1
+	#ifndef SOCKET_ERROR
+	#define SOCKET_ERROR INVALID_SOCKET
+	#endif
+	typedef int SOCKET;
+#endif
+}
 
 //define this if you want to log the status of the connection to the proxy
 //#define SOCKS5_LOG
@@ -82,88 +108,255 @@ namespace SOCKS5
 #pragma pack( pop )
 
 	//error codes
-	enum class SOCKS5Err
+	enum class eSocks5Error
 	{
-		SOCKS5_NONE,
-		SOCKS5_FAILED_TO_CREATE_SOCKET,
-		SOCKS5_FAILED_TO_CONNECT_TO_SERVER,
-		SOCKS5_AUTHENTICATION_ERROR,
-		SOCKS5_INVALID_VERSION_OR_METHOD,
-		SOCKS5_AUTHORIZATION_ERROR,
-		SOCKS5_INVALID_VERSION_OR_STATUS,
-		SOCKS5_CONNECTION_ERROR,
-		SOCKS5_INVALID_VERSION_OR_RESULT,
-		SOCKS5_INVALID_NETADDR_OR_NETPORT,
-		SOCKS5_UNKNOWN_ERROR,
-		SOCKS5_INITIALIZED_SUCCESSFULLY
+		eNone,
+		eFailedToCreateSocket,
+		eFailedToEnableNonBlockingMode,
+		eFailedToConnectToTCPServer,
+		eSuccessfulConnectionToRemoteTCPServer,
+		eRemoteTCPServerClosedTheConnection,
+		eNonBlockingSocketOperationCouldNotBeCompletedImmediately,
+		eSelectFailed,
+		eTimeoutConnectingToRemoteTCPServer,
+		eProcessAuthentication,
+		eAuthenticationError,
+		eAuthenticationSuccessful,
+		eProcessAuthorization,
+		eAuthorizationError,
+		eAuthorizationSuccessful,
+		eQueryingDataAboutARemoteUDPServer,
+		eFailedToQueryingDataAboutARemoteUDPServer,
+		eRemoteUDPServerDataSuccessfullyReceived,
+		eNetworkAddressOrPortCouldNotBeInitialized,
+		eProxyInitializedSuccessfully
 	};
 	class SOCKS5 {
 	private:
-		SOCKET m_sockTCP;//socket of proxy
-		sockaddr_in m_proxyServerAddr;//public addr and port of proxy
-		std::uint32_t m_proxyIP;//network addr of proxy
-		std::uint16_t m_proxyPort;//network port of proxy
-		std::string m_thisIP;//connected proxy ip
-		std::string m_thisPORT;//connected proxy port
-		std::string m_thisLogin;//connected proxy login (only auth)
-		std::string m_thisPassword;//connected proxy password (only auth)
-		bool m_bIsStarted;//is proxy connected
-		bool m_bIsValidReceiving;//set true if you successfully connected to server
-		bool m_bIsReceivingByProxy;//set true if you want to redirect traffic to proxy
-	public:
-		SOCKS5(const std::string ProxyIP, const std::string ProxyPort, const std::string ProxyLogin, const std::string ProxyPassword) :
-			m_sockTCP(INVALID_SOCKET), 
-			m_proxyServerAddr{},
-			m_proxyIP{},
-			m_proxyPort{},
-			m_thisIP{"NULL"},
-			m_thisPORT{"NULL"},
-			m_thisLogin{"NLL"},
-			m_thisPassword{"NULL"},
-			m_bIsStarted(false),
-			m_bIsValidReceiving(false),
-			m_bIsReceivingByProxy(false)
+		SOCKET m_sockTCP; //socket of proxy
+		sockaddr_in m_proxyServerAddr; //public addr and port of proxy
+		std::uint32_t m_proxyIP; //network addr of proxy
+		std::uint16_t m_proxyPort; //network port of proxy
+		std::string m_thisIP; //connected proxy ip
+		std::string m_thisPORT; //connected proxy port
+		std::string m_thisLogin; //connected proxy login (only auth)
+		std::string m_thisPassword; //connected proxy password (only auth)
+		bool m_bIsStarted; //is proxy connected
+		bool m_bIsValidReceiving; //set true if you successfully connected to server
+		bool m_bIsReceivingByProxy; //set true if you want to redirect traffic to proxy
+		std::function<void(SOCKS5*, eSocks5Error)> m_Handler; //error handler
+		std::chrono::milliseconds m_LastConnectionCheck; 
+		enum class eProxyStatus //proxy status on asynchronous connection
 		{
-			m_proxyIP = inet_addr(ProxyIP.c_str());
-			m_proxyPort = htons(std::atoi(ProxyPort.c_str()));
-			m_thisIP = ProxyIP;
-			m_thisPORT = ProxyPort;
-			m_thisLogin = ProxyLogin;
-			m_thisPassword = ProxyPassword;
-		};
-		SOCKS5(const std::string ProxyIP, const std::string ProxyPort) :
+			eUnknown,
+			eFailed,
+			eProcessConnectToSocket,
+			eConnectedToSocket,
+			eSendAuthRequestHeader,
+			eSendConnectRequestHeader,
+			eSendAuthRequestPasswd,
+			eAuthRespondHeaderAuth,
+			eConnectRespondHeader,
+			eInitialized
+		} m_ProxyStatus;
+		bool m_bIsTimerEnabled;
+		bool m_bIsProcessing;
+		auto Send(void* buffer, std::size_t size) -> bool
+		{
+			// Checking if a socket is ready for writing via select
+			fd_set writefds{};
+			FD_ZERO(&writefds);
+			FD_SET(this->m_sockTCP, &writefds);
+
+			timeval select_timeout{};
+			select_timeout.tv_sec = 0;
+			select_timeout.tv_usec = 0;
+
+			int select_result = select(static_cast<int>(this->m_sockTCP) + 1, nullptr, &writefds, nullptr, &select_timeout);
+
+			if (select_result > 0 && FD_ISSET(this->m_sockTCP, &writefds))
+			{
+				// The socket is ready to write.
+				int result = send(this->m_sockTCP, static_cast<const char*>(buffer), static_cast<int>(size), 0);
+
+				if (result > 0)
+				{
+					this->m_bIsTimerEnabled = false;
+					return true;
+				}
+				else if (result == 0)
+				{
+					// Connection closed
+#if defined (SOCKS5_LOG)
+					printf("[CProxy::Send->Error]: Connection closed by peer\n");
+#endif
+					closesocket(this->m_sockTCP);
+					if (this->m_Handler)
+					{
+						this->m_Handler(this, eSocks5Error::eRemoteTCPServerClosedTheConnection);
+					}
+					this->m_ProxyStatus = eProxyStatus::eFailed;
+					this->m_bIsTimerEnabled = false;
+					return false;
+				}
+				else
+				{
+					// Error sending
+					int error = GetLastError();
+					if (error != EWOULDBLOCK)
+					{
+#if defined (SOCKS5_LOG)
+						printf("[CProxy::Send->Error]: Send error: %d\n", error);
+#endif
+						closesocket(this->m_sockTCP);
+						if (this->m_Handler)
+						{
+							this->m_Handler(this, eSocks5Error::eNonBlockingSocketOperationCouldNotBeCompletedImmediately);
+						}
+						this->m_ProxyStatus = eProxyStatus::eFailed;
+						this->m_bIsTimerEnabled = false;
+						return false;
+					}
+					// WSAEWOULDBLOCK - socket is not ready again, keep trying
+					return false;
+				}
+			}
+			else if (select_result == 0)
+			{
+				// select() timeout, socket not ready for writing
+				return false;
+			}
+			else
+			{
+				// Error select()
+				int error = GetLastError();
+#if defined(SOCKS5_LOG)
+				printf("[CProxy::Send->Error]: Select error: %d\n", error);
+#endif
+				closesocket(this->m_sockTCP);
+				if (this->m_Handler)
+				{
+					this->m_Handler(this, eSocks5Error::eSelectFailed);
+				}
+				this->m_ProxyStatus = eProxyStatus::eFailed;
+				this->m_bIsTimerEnabled = false;
+				return false;
+			}
+		}
+		auto Receive(void* buffer, std::size_t size) -> bool
+		{
+			while (true) {
+				// Checking if there is data to read
+				fd_set readfds{};
+				FD_ZERO(&readfds);
+				FD_SET(this->m_sockTCP, &readfds);
+
+				timeval select_timeout{};
+				select_timeout.tv_sec = 0;
+				select_timeout.tv_usec = 0;
+
+				int select_result = select(static_cast<int>(this->m_sockTCP) + 1, &readfds, nullptr, nullptr, &select_timeout);
+
+				if (select_result > 0 && FD_ISSET(this->m_sockTCP, &readfds)) 
+				{
+					// Data is readable
+					int bytesReceived = recv(this->m_sockTCP, static_cast<char*>(buffer), static_cast<int>(size), 0);
+
+					if (bytesReceived > 0) {
+						return true;
+					}
+					else if (bytesReceived == 0) {
+						// The connection was closed by the remote peer.
+#if defined(SOCKS5_LOG)
+						printf("[CProxy::Receive->Error]: Connection closed by peer\n");
+#endif
+						closesocket(this->m_sockTCP);
+						if (this->m_Handler) {
+							this->m_Handler(this, eSocks5Error::eRemoteTCPServerClosedTheConnection);
+						}
+						this->m_ProxyStatus = eProxyStatus::eFailed;
+						this->m_bIsTimerEnabled = false;
+						return false;
+					}
+					else 
+					{
+						// Error while reading
+						int error = GetLastError();
+						if (error != EWOULDBLOCK) {
+#if defined(SOCKS5_LOG)
+							printf("[CProxy::Receive->Error]: Receive error: %d\n", error);
+#endif
+							closesocket(this->m_sockTCP);
+							if (this->m_Handler) {
+								this->m_Handler(this, eSocks5Error::eNonBlockingSocketOperationCouldNotBeCompletedImmediately);
+							}
+							this->m_ProxyStatus = eProxyStatus::eFailed;
+							this->m_bIsTimerEnabled = false;
+							return false;
+						}
+						// If WSAEWOULDBLOCK - continue waiting
+						return false; // check this later
+					}
+				}
+				else if (select_result == 0) 
+				{
+					// select() timeout, continue waiting
+					return false;
+				}
+				else 
+				{
+					// Error select()
+					int error = GetLastError();
+#if defined(SOCKS5_LOG)
+					printf("[CProxy::Receive->Error]: Select error: %d\n", error);
+#endif
+					closesocket(this->m_sockTCP);
+					if (this->m_Handler) {
+						this->m_Handler(this, eSocks5Error::eSelectFailed);
+					}
+					this->m_ProxyStatus = eProxyStatus::eFailed;
+					this->m_bIsTimerEnabled = false;
+					return false;
+				}
+			}
+		}
+	public:
+		SOCKS5(const std::string ProxyIP, const std::string ProxyPort, const std::string ProxyLogin = "", const std::string ProxyPassword = "") :
 			m_sockTCP(INVALID_SOCKET),
 			m_proxyServerAddr{},
-			m_proxyIP{},
-			m_proxyPort{},
-			m_thisIP{ "NULL" },
-			m_thisPORT{ "NULL" },
-			m_thisLogin{ "NULL" },
-			m_thisPassword{ "NULL" },
+			m_proxyIP{ inet_addr(ProxyIP.c_str()) },
+			m_proxyPort{ htons(std::atoi(ProxyPort.c_str())) },
+			m_thisIP{ ProxyIP },
+			m_thisPORT{ ProxyPort },
+			m_thisLogin{ ProxyLogin },
+			m_thisPassword{ ProxyPassword },
 			m_bIsStarted(false),
 			m_bIsValidReceiving(false),
-			m_bIsReceivingByProxy(false)
-		{
-			m_proxyIP = inet_addr(ProxyIP.c_str());
-			m_proxyPort = htons(std::atoi(ProxyPort.c_str()));
-			m_thisIP = ProxyIP;
-			m_thisPORT = ProxyPort;
-		};
+			m_bIsReceivingByProxy(false),
+			m_ProxyStatus{ eProxyStatus::eUnknown },
+			m_Handler{},
+			m_LastConnectionCheck{},
+			m_bIsTimerEnabled{ false },
+			m_bIsProcessing{ false }
+		{};
 		SOCKS5() :
 			m_sockTCP(INVALID_SOCKET),
 			m_proxyServerAddr{},
 			m_proxyIP{},
 			m_proxyPort{},
-			m_thisIP{ "NULL" },
-			m_thisPORT{ "NULL" },
-			m_thisLogin{ "NLL" },
-			m_thisPassword{ "NULL" },
+			m_thisIP{},
+			m_thisPORT{},
+			m_thisLogin{},
+			m_thisPassword{},
 			m_bIsStarted(false),
 			m_bIsValidReceiving(false),
-			m_bIsReceivingByProxy(false)
-		{
-
-		};
+			m_bIsReceivingByProxy(false),
+			m_ProxyStatus{ eProxyStatus::eUnknown },
+			m_Handler{},
+			m_LastConnectionCheck{},
+			m_bIsTimerEnabled{ false },
+			m_bIsProcessing{ false }
+		{};
 		~SOCKS5() {
 			if (m_bIsStarted)
 				Shutdown();
@@ -181,65 +374,106 @@ namespace SOCKS5
 			this->m_bIsStarted = prox.m_bIsStarted;
 			this->m_bIsValidReceiving = prox.m_bIsValidReceiving;
 			this->m_bIsReceivingByProxy = prox.m_bIsReceivingByProxy;
+			this->m_ProxyStatus = prox.m_ProxyStatus;
+			this->m_Handler = prox.m_Handler;
+			this->m_LastConnectionCheck = prox.m_LastConnectionCheck;
+			this->m_bIsTimerEnabled = prox.m_bIsTimerEnabled;
+			this->m_bIsProcessing = prox.m_bIsProcessing;
 			return *this;
 		};
-		//after start (log + pass)
-		auto StartWithAuth(void)
+		//register error handler
+		auto RegisterHandler(std::function<void(SOCKS5*, eSocks5Error)> handler) -> void
 		{
-			return Start(m_thisIP, m_thisPORT, m_thisLogin, m_thisPassword);
-		};
-		//after start (no auth)
-		auto StartWithoutAuth(void)
-		{
-			return Start(m_thisIP, m_thisPORT);
+			this->m_Handler = handler;
 		}
-		//not auth
-		auto Start(const std::string ProxyIP, const std::string ProxyPort) -> std::pair<bool, SOCKS5Err>
+		//update proxy network
+		auto Update(void) -> void
 		{
-			m_proxyIP = inet_addr(ProxyIP.c_str());
-			m_proxyPort = htons(std::atoi(ProxyPort.c_str()));
-			m_thisIP = ProxyIP;
-			m_thisPORT = ProxyPort;
-
+			switch (this->m_ProxyStatus)
+			{
+			case eProxyStatus::eUnknown:
+			case eProxyStatus::eFailed:
+				return;
+			case eProxyStatus::eProcessConnectToSocket:
+			{
+				// timeout check
+				auto now = std::chrono::steady_clock::now();
+				if (std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) -
+					this->m_LastConnectionCheck > std::chrono::milliseconds(15000))
+				{
+					closesocket(this->m_sockTCP);
 #if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Running a proxy for the host: %s:%s\n", m_thisIP.c_str(), m_thisPORT.c_str());
+					printf("[CProxy::Start->Error]: Connection timeout. (Socket error: %d)\n", GetLastError());
 #endif
-			
-			if (m_sockTCP != INVALID_SOCKET)
-				closesocket(m_sockTCP);
+					if (this->m_Handler)
+					{
+						this->m_Handler(this, eSocks5Error::eTimeoutConnectingToRemoteTCPServer);
+					}
+					this->m_bIsProcessing = false;
+					this->m_ProxyStatus = eProxyStatus::eFailed;
+					return;
+				}
 
-			if ((m_sockTCP = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
-			{
-#if defined (SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Couldn't create socket. (WSAError: %d)\n", WSAGetLastError());
+				fd_set writefds{};
+				FD_ZERO(&writefds);
+				FD_SET(this->m_sockTCP, &writefds);
+
+				timeval timeout{};
+				timeout.tv_sec = 0;
+				timeout.tv_usec = 0;
+
+				int result = select(static_cast<int>(this->m_sockTCP) + 1, nullptr, &writefds, nullptr, &timeout);
+				if (result > 0 && FD_ISSET(this->m_sockTCP, &writefds))
+				{
+					int error = 0;
+					socklen_t len = sizeof(error);
+					if (getsockopt(this->m_sockTCP, SOL_SOCKET, SO_ERROR, (char*)&error, &len) == 0 && error == 0)
+					{
+						if (this->m_Handler)
+						{
+							this->m_Handler(this, eSocks5Error::eSuccessfulConnectionToRemoteTCPServer);
+						}
+						this->m_ProxyStatus = eProxyStatus::eConnectedToSocket;
+						return;
+					}
+					else
+					{
+						closesocket(this->m_sockTCP);
+#if defined(SOCKS5_LOG)
+						printf("[CProxy::Start->Error]: Connection failed. (Socket error: %d)\n", error);
 #endif
-				return { false, SOCKS5Err::SOCKS5_FAILED_TO_CREATE_SOCKET };
+						if (this->m_Handler)
+						{
+							this->m_Handler(this, eSocks5Error::eFailedToConnectToTCPServer);
+						}
+						this->m_bIsProcessing = false;
+						this->m_ProxyStatus = eProxyStatus::eFailed;
+						return;
+					}
+				}
+				else if (result == 0)
+				{
+					// select() timeout, just wait for next iteration
+				}
+				else if (result == INVALID_SOCKET)
+				{
+					int error = GetLastError();
+					closesocket(this->m_sockTCP);
+#if defined(SOCKS5_LOG)
+					printf("[CProxy::Start->Error]: Select failed. (Socket error: %d)\n", error);
+#endif
+					if (this->m_Handler)
+					{
+						this->m_Handler(this, eSocks5Error::eSelectFailed);
+					}
+					this->m_bIsProcessing = false;
+					this->m_ProxyStatus = eProxyStatus::eFailed;
+					return;
+				}
+				break;
 			}
-
-#if defined(_WIN32)
-			sockaddr_in sa{};
-			sa.sin_addr.S_un.S_addr = m_proxyIP;
-			sa.sin_family = AF_INET;
-			sa.sin_port = m_proxyPort;
-#else
-			sockaddr_in sa{};
-			sa.sin_addr.s_addr = m_proxyIP;
-			sa.sin_family = AF_INET;
-			sa.sin_port = m_proxyPort;
-#endif
-
-			std::uint32_t timeout = 5000;//timeout of connect to proxy server
-
-			setsockopt(m_sockTCP, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
-
-			if (connect(m_sockTCP, (sockaddr*)&sa, sizeof(sa)) == INVALID_SOCKET)
+			case eProxyStatus::eConnectedToSocket:
 			{
-#if defined (SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Couldn't connect to the server. (WSAError: %d)\n", WSAGetLastError());
-#endif
-				return { false, SOCKS5Err::SOCKS5_FAILED_TO_CONNECT_TO_SERVER };
-			}
-
 			/*
 				+----+----------+----------+
 				|VER | NMETHODS | METHODS  |
@@ -247,366 +481,396 @@ namespace SOCKS5
 				| 1  |    1     | 1 to 255 |
 				+----+----------+----------+
 			*/
-			AuthRequestHeader ahead{};
-			ahead.byteVersion = 5;// SOCKS5
-			ahead.byteAuthMethodsCount = 1;
-			ahead.byteMethods[0] = 0;//no auth
-
-#if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Authentication...\n");
-#endif
-
-			send(m_sockTCP, (char*)&ahead, sizeof(AuthRequestHeader), 0);
-
-			/*
-				+----+--------+
-				|VER | METHOD |
-				+----+--------+
-				| 1  |   1    |
-				+----+--------+
-			*/
-			AuthRespondHeader arhead{};
-			auto res = recv(m_sockTCP, (char*)&arhead, sizeof(AuthRespondHeader), 0);
-
-			if (res == SOCKET_ERROR) 
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Authentication error. (WSAError: %d)\n", WSAGetLastError());
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_AUTHENTICATION_ERROR };
-			}
-
-			if (arhead.byteVersion != 5 || arhead.byteAuthMethod != 0) 
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Invalid version or method -> ver: %d, method: %d\n", arhead.byteVersion, arhead.byteAuthMethod);
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_METHOD };
-			}
-			else
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Authentication was completed successfully.\n");
-#endif
-			}
-		
-			
-			/*
-				+----+-----+-------+------+----------+----------+
-				|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-				+----+-----+-------+------+----------+----------+
-				| 1  |  1  | X'00' |  1   | Variable |    2     |
-				+----+-----+-------+------+----------+----------+
-			*/
-			ConnectRequestHeader head{};
-			head.byteVersion = 5; //SOCKS5
-			head.byteCommand = 3; // tcp connection = 1, tcp binding = 2,  udp = 3
-			head.byteReserved = 0;
-			head.byteAddressType = 1; // IPv4=1, domain name = 3, IPv6 = 4
-			head.ulAddressIPv4 = 0; 
-			head.usPort = 0;
-
-#if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Connection...\n");
-#endif
-
-			send(m_sockTCP, (char*)&head, sizeof(ConnectRequestHeader), 0);
-			
-			ConnectRespondHeader rhead{};
-			auto res2 = recv(m_sockTCP, (char*)&rhead, sizeof(ConnectRespondHeader), 0);
-
-			if (res2 == SOCKET_ERROR)
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Connection error. (WSAError: %d)\n", WSAGetLastError());
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_CONNECTION_ERROR };
-			}
-
-			if (rhead.byteVersion != 5 || rhead.byteResult != 0)
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Invalid version or result -> ver: %d, result: %d\n", rhead.byteVersion, rhead.byteResult);
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_RESULT };
-			}
-			else
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Connected.\n");
-#endif
-				m_proxyServerAddr.sin_family = AF_INET;
-				m_proxyServerAddr.sin_port = rhead.usPort;
-				m_proxyServerAddr.sin_addr.s_addr = rhead.ulAddressIPv4;
-				
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Initializing a network address...\n");
-#endif
-				if (m_proxyServerAddr.sin_port == 0 || m_proxyServerAddr.sin_addr.s_addr == 0)
-				{
-					m_bIsStarted = false;
-#if defined(SOCKS5_LOG)
-					printf("[CProxy::Start]: Network address or port could not be initialized.\n");
-#endif
-					return { false, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
-				}
+				AuthRequestHeader ahead{};
+				ahead.byteVersion = 5;// SOCKS5
+				ahead.byteAuthMethodsCount = 1;
+				if(this->m_thisLogin.empty() && this->m_thisPassword.empty())
+					ahead.byteMethods[0] = 0;//no auth
 				else
+					ahead.byteMethods[0] = 2;//auth with login and password
+
+#if defined(SOCKS5_LOG)
+				printf("[CProxy::Start]: Authentication...\n");
+#endif
+
+				if (this->m_Handler)
 				{
-					m_bIsStarted = true;
-#if defined(SOCKS5_LOG)
-					printf("[CProxy::Start]: The network address has been successfully initialized.\n");
-					printf("[CProxy::Start]: Proxy initialized successfully.\n");
-#endif
-					return { true, SOCKS5Err::SOCKS5_INITIALIZED_SUCCESSFULLY };
+					this->m_Handler(this, eSocks5Error::eProcessAuthentication);
 				}
+
+				if (this->Send(&ahead, sizeof(AuthRequestHeader)))
+				{
+					this->m_ProxyStatus = eProxyStatus::eSendAuthRequestHeader;
+					return;
+				}
+
+				break;
 			}
-
-#if defined(SOCKS5_LOG)
-			printf("[CProxy::Start->Error]: Unknown error.\n");
-#endif
-			closesocket(m_sockTCP);
-			return { false, SOCKS5Err::SOCKS5_UNKNOWN_ERROR };
-		};
-		//auth with login and password
-		auto Start(const std::string ProxyIP, const std::string ProxyPort, const std::string ProxyLogin, const std::string ProxyPassword) -> std::pair<bool, SOCKS5Err>
-		{ 
-			m_proxyIP = inet_addr(ProxyIP.c_str());
-			m_proxyPort = htons(std::atoi(ProxyPort.c_str()));
-			m_thisIP = ProxyIP;
-			m_thisPORT = ProxyPort;
-			m_thisLogin = ProxyLogin;
-			m_thisPassword = ProxyPassword;
-			
-#if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Running a proxy for the host: %s:%s, login: %s, password: %s\n", m_thisIP.c_str(), m_thisPORT.c_str(), m_thisLogin.c_str(), m_thisPassword.c_str());
-#endif
-			
-			if (m_sockTCP != INVALID_SOCKET)
-				closesocket(m_sockTCP);
-
-			if ((m_sockTCP = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+			case eProxyStatus::eSendAuthRequestHeader:
 			{
-#if defined (SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Couldn't create socket. (WSAError: %d)\n", WSAGetLastError());
+
+				/*
+					+----+--------+
+					|VER | METHOD |
+					+----+--------+
+					| 1  |   1    |
+					+----+--------+
+				*/
+				AuthRespondHeader arhead{};
+				if (this->Receive(&arhead, sizeof(AuthRespondHeader)))
+				{
+					if (!this->m_thisLogin.empty() && !this->m_thisPassword.empty()) // auth
+					{
+						if (arhead.byteVersion != 5 || arhead.byteAuthMethod != 2)
+						{
+#if defined(SOCKS5_LOG)
+							printf("[CProxy::Start->Error]: Authentication error. Invalid version or method -> ver: %d, method: %d\n", arhead.byteVersion, arhead.byteAuthMethod);
 #endif
-				return { false, SOCKS5Err::SOCKS5_FAILED_TO_CREATE_SOCKET };
+							closesocket(m_sockTCP);
+							if (this->m_Handler)
+							{
+								this->m_Handler(this, eSocks5Error::eAuthenticationError);
+							}
+							this->m_bIsProcessing = false;
+							this->m_ProxyStatus = eProxyStatus::eFailed;
+							return;
+						}
+						else
+						{
+#if defined(SOCKS5_LOG)
+							printf("[CProxy::Start]: Authentication was completed successfully.\n");
+#endif
+							if (this->m_Handler)
+							{
+								this->m_Handler(this, eSocks5Error::eAuthenticationSuccessful);
+							}
+							this->m_ProxyStatus = eProxyStatus::eSendAuthRequestPasswd;
+							return;
+						}
+					}
+					else if (this->m_thisLogin.empty() && this->m_thisPassword.empty()) // no auth
+					{
+						if (arhead.byteVersion != 5 || arhead.byteAuthMethod != 0)
+						{
+#if defined(SOCKS5_LOG)
+							printf("[CProxy::Start->Error]: Authentication error. Invalid version or method -> ver: %d, method: %d\n", arhead.byteVersion, arhead.byteAuthMethod);
+#endif
+							closesocket(m_sockTCP);
+							if (this->m_Handler)
+							{
+								this->m_Handler(this, eSocks5Error::eAuthenticationError);
+							}
+							this->m_bIsProcessing = false;
+							this->m_ProxyStatus = eProxyStatus::eFailed;
+							return;
+						}
+						else
+						{
+#if defined(SOCKS5_LOG)
+							printf("[CProxy::Start]: Authentication was completed successfully.\n");
+#endif
+							if (this->m_Handler)
+							{
+								this->m_Handler(this, eSocks5Error::eAuthenticationSuccessful);
+							}
+							this->m_ProxyStatus = eProxyStatus::eSendConnectRequestHeader;
+							return;
+						}
+					}
+				}
+				break;
+			}
+			case eProxyStatus::eSendAuthRequestPasswd:
+			{
+				/*   username/password request looks like
+					* +----+------+----------+------+----------+
+					* |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
+					* +----+------+----------+------+----------+
+					* | 1  |  1   | 1 to 255 |  1   | 1 to 255 |
+					* +----+------+----------+------+----------+
+				*/
+				char AuthRequest[1024] = { 0 };
+				std::uint16_t AuthRequestLen = 0;
+				AuthRequest[AuthRequestLen] = 1; //VER
+				AuthRequestLen++;
+
+				AuthRequest[AuthRequestLen] = (std::uint8_t)m_thisLogin.size();//ULEN
+				AuthRequestLen++;
+
+				std::memcpy(AuthRequest + AuthRequestLen, m_thisLogin.data(), m_thisLogin.size()); //UNAME
+				AuthRequestLen += (std::uint16_t)m_thisLogin.size();
+
+				AuthRequest[AuthRequestLen] = (std::uint8_t)m_thisPassword.size();//PLEN
+				AuthRequestLen++;
+
+				std::memcpy(AuthRequest + AuthRequestLen, m_thisPassword.data(), m_thisPassword.size()); //PASSWD
+				AuthRequestLen += (std::uint16_t)m_thisPassword.size();
+
+#if defined(SOCKS5_LOG)
+				printf("[CProxy::Start]: Authorization.\n");
+#endif
+
+				if (this->m_Handler)
+				{
+					this->m_Handler(this, eSocks5Error::eProcessAuthorization);
+				}
+
+				if (this->Send(&AuthRequest, AuthRequestLen))
+				{
+					this->m_ProxyStatus = eProxyStatus::eAuthRespondHeaderAuth;
+					return;
+				}
+				break;
+			}
+			case eProxyStatus::eSendConnectRequestHeader:
+			{
+
+				/*
+					+----+-----+-------+------+----------+----------+
+					|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+					+----+-----+-------+------+----------+----------+
+					| 1  |  1  | X'00' |  1   | Variable |    2     |
+					+----+-----+-------+------+----------+----------+
+				*/
+				ConnectRequestHeader head{};
+				head.byteVersion = 5; //SOCKS5
+				head.byteCommand = 3; // tcp connection = 1, tcp binding = 2,  udp = 3
+				head.byteReserved = 0;
+				head.byteAddressType = 1; // IPv4=1, domain name = 3, IPv6 = 4
+				head.ulAddressIPv4 = 0;
+				head.usPort = 0;
+
+#if defined(SOCKS5_LOG)
+				printf("[CProxy::Start]: Connection...\n");
+#endif
+
+				if (this->m_Handler)
+				{
+					this->m_Handler(this, eSocks5Error::eQueryingDataAboutARemoteUDPServer);
+				}
+
+				if (this->Send(&head, sizeof(ConnectRequestHeader)))
+				{
+					this->m_ProxyStatus = eProxyStatus::eConnectRespondHeader;
+					return;
+				}
+				break;
+			}
+			case eProxyStatus::eAuthRespondHeaderAuth:
+			{
+				AuthRespondHeaderAuth arheada{};
+				if (this->Receive(&arheada, sizeof(AuthRespondHeaderAuth)))
+				{
+					if (arheada.byteVersion != 1 || arheada.byteStatus != 0)
+					{
+#if defined(SOCKS5_LOG)
+						printf("[CProxy::Start->Error]: Authorization error. Invalid version or status -> ver: %d, status: %d\n", arheada.byteVersion, arheada.byteStatus);
+#endif
+						closesocket(this->m_sockTCP);
+						if (this->m_Handler)
+						{
+							this->m_Handler(this, eSocks5Error::eAuthorizationError);
+						}
+						this->m_bIsProcessing = false;
+						this->m_ProxyStatus = eProxyStatus::eFailed;
+						return;
+					}
+					else
+					{
+#if defined(SOCKS5_LOG)
+						printf("[CProxy::Start]: Authorization was completed successfully.\n");
+#endif
+						if (this->m_Handler)
+						{
+							this->m_Handler(this, eSocks5Error::eAuthenticationSuccessful);
+						}
+						this->m_ProxyStatus = eProxyStatus::eSendConnectRequestHeader;
+						return;
+					}
+				}
+				break;
+			}
+			case eProxyStatus::eConnectRespondHeader:
+			{
+				ConnectRespondHeader rhead{};
+				if (this->Receive(&rhead, sizeof(ConnectRespondHeader)))
+				{
+					if (rhead.byteVersion != 5 || rhead.byteResult != 0)
+					{
+#if defined(SOCKS5_LOG)
+						printf("[CProxy::Start->Error]: Connection error. Invalid version or result -> ver: %d, result: %d\n", rhead.byteVersion, rhead.byteResult);
+#endif
+						closesocket(m_sockTCP);
+						if (this->m_Handler)
+						{
+							this->m_Handler(this, eSocks5Error::eFailedToQueryingDataAboutARemoteUDPServer);
+						}
+						this->m_bIsProcessing = false;
+						this->m_ProxyStatus = eProxyStatus::eFailed;
+						return;
+					}
+					else
+					{
+#if defined(SOCKS5_LOG)
+						printf("[CProxy::Start]: Connected.\n");
+#endif
+						if (this->m_Handler)
+						{
+							this->m_Handler(this, eSocks5Error::eRemoteUDPServerDataSuccessfullyReceived);
+						}
+						m_proxyServerAddr.sin_family = AF_INET;
+						m_proxyServerAddr.sin_port = rhead.usPort;
+						m_proxyServerAddr.sin_addr.s_addr = rhead.ulAddressIPv4;
+
+#if defined(SOCKS5_LOG)
+						printf("[CProxy::Start]: Initializing a network address...\n");
+#endif
+						if (m_proxyServerAddr.sin_port == 0 || m_proxyServerAddr.sin_addr.s_addr == 0)
+						{
+							m_bIsStarted = false;
+#if defined(SOCKS5_LOG)
+							printf("[CProxy::Start]: Network address or port could not be initialized.\n");
+#endif
+							if (this->m_Handler)
+							{
+								this->m_Handler(this, eSocks5Error::eNetworkAddressOrPortCouldNotBeInitialized);
+							}
+							this->m_bIsProcessing = false;
+							this->m_ProxyStatus = eProxyStatus::eFailed;
+							return;
+						}
+						else
+						{
+							m_bIsStarted = true;
+#if defined(SOCKS5_LOG)
+							printf("[CProxy::Start]: The network address has been successfully initialized.\n");
+							printf("[CProxy::Start]: Proxy initialized successfully.\n");
+
+#endif
+
+							this->m_bIsProcessing = false;
+							if (this->m_Handler)
+							{
+								this->m_Handler(this, eSocks5Error::eProxyInitializedSuccessfully);
+							}
+							this->m_ProxyStatus = eProxyStatus::eInitialized;
+							return;
+						}
+					}
+
+#if defined(SOCKS5_LOG)
+					printf("[CProxy::Start->Error]: Unknown error.\n");
+#endif
+					closesocket(m_sockTCP);
+					if (this->m_Handler)
+					{
+						this->m_Handler(this, eSocks5Error::eNone);
+					}
+					this->m_bIsProcessing = false;
+					this->m_ProxyStatus = eProxyStatus::eFailed;
+					return;
+				}
+
+				break;
+			}
+			case eProxyStatus::eInitialized:
+				break;
+			}
+		}
+		//auth + no auth
+		auto Start(const std::string ProxyIP, const std::string ProxyPort, const std::string ProxyLogin = "", const std::string ProxyPassword = "") -> void
+		{
+			this->m_proxyIP = inet_addr(ProxyIP.c_str());
+			this->m_proxyPort = htons(std::atoi(ProxyPort.c_str()));
+			this->m_thisIP = ProxyIP;
+			this->m_thisPORT = ProxyPort;
+			this->m_thisLogin = ProxyLogin;
+			this->m_thisPassword = ProxyPassword;
+			this->m_bIsProcessing = true;
+
+#if defined(SOCKS5_LOG)
+			printf("[CProxy::Start]: Running a proxy for the host: %s:%s\n", this->m_thisIP.c_str(), this->m_thisPORT.c_str());
+#endif
+
+			if (this->m_sockTCP != INVALID_SOCKET)
+				closesocket(this->m_sockTCP);
+
+			if ((this->m_sockTCP = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+			{
+#if defined(SOCKS5_LOG)
+				printf("[CProxy::Start->Error]: Couldn't create socket. (Socket error: %d)\n", GetLastError());
+#endif
+				if (this->m_Handler)
+				{
+					this->m_Handler(this, eSocks5Error::eFailedToCreateSocket);
+				}
+
+				this->m_ProxyStatus = eProxyStatus::eFailed;
+				return;
 			}
 
-#if defined(_WIN32)
-			sockaddr_in sa{};
-			sa.sin_addr.S_un.S_addr = m_proxyIP;
-			sa.sin_family = AF_INET;
-			sa.sin_port = m_proxyPort;
+#ifdef _WIN32
+			u_long mode = 1;
+			if (ioctlsocket(this->m_sockTCP, FIONBIO, &mode) != 0) 
 #else
+			int flags = fcntl(this->m_sockTCP, F_GETFL, 0);
+			if (flags == -1 || fcntl(this->m_sockTCP, F_SETFL, flags | O_NONBLOCK) == -1) 
+#endif
+			{
+				closesocket(this->m_sockTCP);
+#if defined (SOCKS5_LOG)
+				printf("[CProxy::Start->Error]: Couldn't enable non-blocking socket. (Socket error: %d)\n", GetLastError());
+#endif
+				if (this->m_Handler)
+				{
+					this->m_Handler(this, eSocks5Error::eFailedToEnableNonBlockingMode);
+				}
+
+				this->m_ProxyStatus = eProxyStatus::eFailed;
+				return;
+			}		
+
 			sockaddr_in sa{};
+#if defined(_WIN32)
+			sa.sin_addr.S_un.S_addr = m_proxyIP;
+#else
 			sa.sin_addr.s_addr = m_proxyIP;
+#endif
 			sa.sin_family = AF_INET;
 			sa.sin_port = m_proxyPort;
-#endif
 
-			std::uint32_t timeout = 5000;//tineout of connect to proxy server
-
-			setsockopt(m_sockTCP, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
-
-			if (connect(m_sockTCP, (sockaddr*)&sa, sizeof(sa)) == INVALID_SOCKET)
+			int result = connect(this->m_sockTCP, (sockaddr*)&sa, sizeof(sa));
+			if (result == INVALID_SOCKET) 
 			{
+
+				int error = GetLastError();
+#ifdef _WIN32
+        		if (error != WSAEWOULDBLOCK)
+#else
+        		if (error != EINPROGRESS)
+#endif
+				{
+					closesocket(this->m_sockTCP);
 #if defined (SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Couldn't connect to the server. (WSAError: %d)\n", WSAGetLastError());
+					printf("[CProxy::Start->Error]: Couldn't connect to the server. (Socket error: %d)\n", GetLastError());
 #endif
-				return { false, SOCKS5Err::SOCKS5_FAILED_TO_CONNECT_TO_SERVER };
-			}
+					if (this->m_Handler)
+					{
+						this->m_Handler(this, eSocks5Error::eFailedToConnectToTCPServer);
+					}
 
-			/*
-				+----+----------+----------+
-				|VER | NMETHODS | METHODS  |
-				+----+----------+----------+
-				| 1  |    1     | 1 to 255 |
-				+----+----------+----------+
-			*/
-			AuthRequestHeader ahead{};
-			ahead.byteVersion = 5;// SOCKS5
-			ahead.byteAuthMethodsCount = 1;
-			ahead.byteMethods[0] = 2;//auth with login and password
-
-#if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Authentication...\n");
-#endif
-
-			send(m_sockTCP, (char*)&ahead, sizeof(AuthRequestHeader), 0);
-
-			/*
-				+----+--------+
-				|VER | METHOD |
-				+----+--------+
-				| 1  |   1    |
-				+----+--------+
-			*/
-			AuthRespondHeader arhead{};
-			auto res = recv(m_sockTCP, (char*)&arhead, sizeof(AuthRespondHeader), 0);
-
-			if (res == SOCKET_ERROR) 
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Authentication error. (WSAError: %d)\n", WSAGetLastError());
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_AUTHENTICATION_ERROR };
-			}
-
-			if (arhead.byteVersion != 5 || arhead.byteAuthMethod != 2) 
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Invalid version or method -> ver: %d, method: %d\n", arhead.byteVersion, arhead.byteAuthMethod);
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_METHOD };
-			}
-			else
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Authentication was completed successfully.\n");
-#endif
-			}
-		
-			/*   username/password request looks like
-				* +----+------+----------+------+----------+
-				* |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
-				* +----+------+----------+------+----------+
-				* | 1  |  1   | 1 to 255 |  1   | 1 to 255 |
-				* +----+------+----------+------+----------+
-			*/
-			char AuthRequest[1024] = { 0 };
-			std::uint16_t AuthRequestLen = 0;
-			AuthRequest[AuthRequestLen] = 1; //VER
-			AuthRequestLen++;
-
-			AuthRequest[AuthRequestLen] = (std::uint8_t)m_thisLogin.size();//ULEN
-			AuthRequestLen++;
-
-			std::memcpy(AuthRequest + AuthRequestLen, m_thisLogin.data(), m_thisLogin.size()); //UNAME
-			AuthRequestLen += (std::uint16_t)m_thisLogin.size();
-
-			AuthRequest[AuthRequestLen] = (std::uint8_t)m_thisPassword.size();//PLEN
-			AuthRequestLen++;
-
-			std::memcpy(AuthRequest + AuthRequestLen, m_thisPassword.data(), m_thisPassword.size()); //PASSWD
-			AuthRequestLen += (std::uint16_t)m_thisPassword.size();
-
-#if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Authorization.\n");
-#endif
-
-			send(m_sockTCP, AuthRequest, AuthRequestLen, 0);
-
-			AuthRespondHeaderAuth arheada{};
-			auto res2 = recv(m_sockTCP, (char*)&arheada, sizeof(AuthRespondHeaderAuth), 0);
-
-			if (res2 == SOCKET_ERROR)
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Authorization error. (WSAError: %d)\n", WSAGetLastError());
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_AUTHORIZATION_ERROR };
-			}
-
-			if (arheada.byteVersion != 1 || arheada.byteStatus != 0)
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Invalid version or status -> ver: %d, status: %d\n", arheada.byteVersion, arheada.byteStatus);
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_STATUS };
-			}
-			else
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Authorization was completed successfully.\n");
-#endif
-			}
-
-			/*
-				+----+-----+-------+------+----------+----------+
-				|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-				+----+-----+-------+------+----------+----------+
-				| 1  |  1  | X'00' |  1   | Variable |    2     |
-				+----+-----+-------+------+----------+----------+
-			*/
-			ConnectRequestHeader head{};
-			head.byteVersion = 5; //SOCKS5
-			head.byteCommand = 3; // tcp connection = 1, tcp binding = 2,  udp = 3
-			head.byteReserved = 0;
-			head.byteAddressType = 1; // IPv4=1, domain name = 3, IPv6 = 4
-			head.ulAddressIPv4 = 0; 
-			head.usPort = 0;
-
-#if defined(SOCKS5_LOG)
-			printf("[CProxy::Start]: Connection...\n");
-#endif
-
-			send(m_sockTCP, (char*)&head, sizeof(ConnectRequestHeader), 0);
-			
-			ConnectRespondHeader rhead{};
-			auto res3 = recv(m_sockTCP, (char*)&rhead, sizeof(ConnectRespondHeader), 0);
-
-			if (res3 == SOCKET_ERROR)
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Connection error. (WSAError: %d)\n", WSAGetLastError());
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_CONNECTION_ERROR };
-			}
-
-			if (rhead.byteVersion != 5 || rhead.byteResult != 0)
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start->Error]: Invalid version or result -> ver: %d, result: %d\n", rhead.byteVersion, rhead.byteResult);
-#endif
-				closesocket(m_sockTCP);
-				return { false, SOCKS5Err::SOCKS5_INVALID_VERSION_OR_RESULT };
-			}
-			else
-			{
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Connected.\n");
-#endif
-				m_proxyServerAddr.sin_family = AF_INET;
-				m_proxyServerAddr.sin_port = rhead.usPort;
-				m_proxyServerAddr.sin_addr.s_addr = rhead.ulAddressIPv4;
-
-#if defined(SOCKS5_LOG)
-				printf("[CProxy::Start]: Initializing a network address...\n");
-#endif
-				if (m_proxyServerAddr.sin_port == 0 || m_proxyServerAddr.sin_addr.s_addr == 0)
-				{
-					m_bIsStarted = false;
-#if defined(SOCKS5_LOG)
-					printf("[CProxy::Start]: Network address or port could not be initialized.\n");
-#endif
-					return { false, SOCKS5Err::SOCKS5_INVALID_NETADDR_OR_NETPORT };
-				}
-				else
-				{
-					m_bIsStarted = true;
-#if defined(SOCKS5_LOG)
-					printf("[CProxy::Start]: The network address has been successfully initialized.\n");
-					printf("[CProxy::Start]: Proxy initialized successfully.\n");
-#endif
-					return { true, SOCKS5Err::SOCKS5_INITIALIZED_SUCCESSFULLY };
+					this->m_ProxyStatus = eProxyStatus::eFailed;
+					return;
 				}
 			}
-
-#if defined(SOCKS5_LOG)
-			printf("[CProxy::Start->Error]: Unknown error.\n");
-#endif
-			closesocket(m_sockTCP);
-			return { false, SOCKS5Err::SOCKS5_UNKNOWN_ERROR };
-		};
+			this->m_LastConnectionCheck = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch());
+			this->m_ProxyStatus = eProxyStatus::eProcessConnectToSocket;
+		}
+		//check proxy is proccessing at this moment
+		auto IsProcessing() const -> bool
+		{
+			return this->m_bIsProcessing;
+		}
 		//send datagram
 		auto SendTo(SOCKET socket, char* data, std::int32_t dataLength, std::int32_t flags, sockaddr_in* to, std::int32_t tolen) -> std::int32_t
 		{
@@ -653,17 +917,16 @@ namespace SOCKS5
 			UDPDatagramHeader* udph = (UDPDatagramHeader*)data;
 #if defined(_WIN32)
 			from->sin_addr.S_un.S_addr = udph->ulAddressIPv4;
-			from->sin_port = udph->usPort;
 #else
 			from->sin_addr.s_addr = udph->ulAddressIPv4;
-			from->sin_port = udph->usPort;
 #endif
+			from->sin_port = udph->usPort;
 			std::memcpy(buffer, (void*)((std::uintptr_t)data + udphsize), len - udphsize);
 			delete[] data;
 			return len - udphsize;
 		};
 		//check if proxy started
-		auto IsStarted(void) -> bool
+		auto IsStarted(void) const -> bool
 		{
 			return m_bIsStarted;
 		};
@@ -678,24 +941,21 @@ namespace SOCKS5
 			}
 			else
 			{
-				if (m_thisLogin.empty())
-					Start(m_thisIP, m_thisPORT);
-				else 
-					Start(m_thisIP, m_thisPORT, m_thisLogin, m_thisPassword);
+				this->Start(this->m_thisIP, this->m_thisPORT, this->m_thisLogin, this->m_thisPassword);
 			}
 		};
 		//get proxy ip
-		auto GetProxyIP(void) -> std::string
+		auto GetProxyIP(void) const -> std::string
 		{
 			return m_thisIP;
 		};
 		//get proxy port
-		auto GetProxyPort(void) -> std::string
+		auto GetProxyPort(void) const -> std::string
 		{
 			return m_thisPORT;
 		};
 		//get public proxy ip
-		auto GetPublicProxyIP(void) -> std::string
+		auto GetPublicProxyIP(void) const -> std::string
 		{
 			if (m_bIsStarted)
 				return inet_ntoa(m_proxyServerAddr.sin_addr);
@@ -708,7 +968,7 @@ namespace SOCKS5
 			m_bIsValidReceiving = status;
 		}
 		//check if successfully connect to the server from proxy
-		auto IsValidProxy(void) -> bool
+		auto IsValidProxy(void) const -> bool
 		{
 			return m_bIsValidReceiving;
 		}
@@ -718,7 +978,7 @@ namespace SOCKS5
 			m_bIsReceivingByProxy = status;
 		};
 		//check if traffic redirecting from proxy
-		auto IsReceivingByProxy(void) -> bool
+		auto IsReceivingByProxy(void) const -> bool
 		{
 			return m_bIsReceivingByProxy;
 		}
@@ -732,3 +992,5 @@ namespace SOCKS5
 		}
 	};
 };
+
+#endif // __SOCKS5_HPP

@@ -293,6 +293,7 @@ SOCKET SocketLayer::CreateBoundSocket( unsigned short port, bool blockingSocket,
 	return listenSocket;
 }
 
+/*
 #if !defined(_COMPATIBILITY_1) && !defined(_COMPATIBILITY_2)
 const char* SocketLayer::DomainNameToIP( const char *domainName )
 {
@@ -309,6 +310,38 @@ const char* SocketLayer::DomainNameToIP( const char *domainName )
 	memcpy( &addr, phe->h_addr_list[ 0 ], sizeof( struct in_addr ) );
 
 	return inet_ntoa( addr );
+}
+#endif
+*/
+
+#if !defined(_COMPATIBILITY_1) && !defined(_COMPATIBILITY_2)
+const char* SocketLayer::DomainNameToIP(const char *domainName)
+{
+    struct addrinfo hints{}, *res{}, *p{};
+    struct in_addr addr{};
+    static char ipstr[INET_ADDRSTRLEN]{};
+    int status{};
+
+    hints.ai_family = AF_INET;
+
+    status = getaddrinfo(domainName, NULL, &hints, &res);
+    if (status != 0) 
+        return 0;
+
+    for (p = res; p != NULL; p = p->ai_next) 
+	{
+        if (p->ai_family == AF_INET) 
+		{
+            struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+            addr = ipv4->sin_addr;
+            inet_ntop(AF_INET, &addr, ipstr, sizeof(ipstr));
+            freeaddrinfo(res);
+            return ipstr;
+        }
+    }
+
+    freeaddrinfo(res);
+    return 0;
 }
 #endif
 
@@ -401,18 +434,37 @@ int SocketLayer::RecvFrom( const SOCKET s, RakPeer *rakPeer, int *errorCode, voi
 	
 	if ( len != SOCKET_ERROR )
 	{
+		//const char* pdata = data;
+		//unsigned short portnum = ntohs(sa.sin_port);
+		//std::string buf;
+		//if (((CProxy*)pProxy)->IsStarted()) // RAKSAMP PROXY
+		//{
+		//	SOCKS5::UDPDatagramHeader* udph = (SOCKS5::UDPDatagramHeader*)data;
+		//	sa.sin_addr.s_addr = udph->ulAddressIPv4;
+		//	portnum = htons(udph->usPort);
+		//	pdata = data + sizeof(SOCKS5::UDPDatagramHeader);
+		//	len -= sizeof(SOCKS5::UDPDatagramHeader);
+		//}
+		//else
+		//{
+		//	portnum = ntohs(sa.sin_port);
+		//}
+
+		//if(((CProxy*)pProxy)->IsStarted())
+		//	ProcessNetworkPacket( sa.sin_addr.s_addr, portnum, pdata, len, rakPeer );
+		//else ProcessNetworkPacket( sa.sin_addr.s_addr, portnum, data, len, rakPeer );
+
 		const char* pdata = data;
 		unsigned short portnum;
 		portnum = ntohs(sa.sin_port);
 		std::string buf;
-		if ( (pProxy != nullptr) && ((((SOCKS5::SOCKS5*)pProxy)->IsStarted() == true) && (((SOCKS5::SOCKS5*)pProxy)->IsReceivingByProxy() == true)) ) // RAKSAMP PROXY
+		if ( ((SOCKS5::SOCKS5*)pProxy != nullptr) && (((SOCKS5::SOCKS5*)pProxy)->IsStarted() == true) && (((SOCKS5::SOCKS5*)pProxy)->IsReceivingByProxy() == true) ) // RAKSAMP PROXY
 		{
 			SOCKS5::UDPDatagramHeader* udph = (SOCKS5::UDPDatagramHeader*)data;
 			sa.sin_addr.s_addr = udph->ulAddressIPv4;
 			portnum = htons(udph->usPort);
 			pdata = data + sizeof(SOCKS5::UDPDatagramHeader);
 			len -= sizeof(SOCKS5::UDPDatagramHeader);
-
 			ProcessNetworkPacket(sa.sin_addr.s_addr, portnum, pdata, len, rakPeer);
 		}
 		else
@@ -433,7 +485,7 @@ int SocketLayer::RecvFrom( const SOCKET s, RakPeer *rakPeer, int *errorCode, voi
 
 std::string& kyretardizeDatagram_v2(unsigned char* buf, int len, int port, std::string& encrBuf)
 {
-	const unsigned char sampEncrTable[256] =
+	constexpr unsigned char sampEncrTable[256] =
 	{
 		0x27, 0x69, 0xFD, 0x87, 0x60, 0x7D, 0x83, 0x02, 0xF2, 0x3F, 0x71, 0x99, 0xA3, 0x7C, 0x1B, 0x9D,
 		0x76, 0x30, 0x23, 0x25, 0xC5, 0x82, 0x9B, 0xEB, 0x1E, 0xFA, 0x46, 0x4F, 0x98, 0xC9, 0x37, 0x88,
@@ -452,8 +504,6 @@ std::string& kyretardizeDatagram_v2(unsigned char* buf, int len, int port, std::
 		0xAF, 0xED, 0xE7, 0x08, 0xB7, 0x03, 0xE6, 0x8E, 0xAB, 0x91, 0x89, 0x3E, 0x2C, 0x96, 0x42, 0xD9,
 		0x78, 0xDF, 0xD0, 0x57, 0x5D, 0x84, 0x41, 0x7E, 0xCE, 0xF7, 0x32, 0xC3, 0xD5, 0x20, 0x0B, 0xA7
 	};
-	//Log("SEND: %d \n%s\n", len, DumpMem(buf, len));
-	// memcpy(encrBuffer, buf, len);
 	bool bXORPort = false;
 
 	unsigned char bChecksum = 0;
@@ -511,7 +561,7 @@ int SocketLayer::SendTo( SOCKET s, const char *data, int length, unsigned int bi
 
 	do
 	{	
-		if ( (pProxy != nullptr) && (((((SOCKS5::SOCKS5*)pProxy)->IsStarted()) == true) && ((((SOCKS5::SOCKS5*)pProxy)->IsReceivingByProxy()) == true)) )
+		if ( ((SOCKS5::SOCKS5*)pProxy != nullptr) &&  ((((SOCKS5::SOCKS5*)pProxy)->IsStarted()) == true) && ((((SOCKS5::SOCKS5*)pProxy)->IsReceivingByProxy()) == true) )
 		{
 			len = ((SOCKS5::SOCKS5*)pProxy)->SendTo(s, (char*)buffer.data(), length + 1, 0, &sa, sizeof(sockaddr_in)); // RAKSAMP PROXY
 		}
@@ -543,6 +593,7 @@ int SocketLayer::SendTo( SOCKET s, const char *data, int length, char ip[ 16 ], 
 	return SendTo( s, data, length, binaryAddress, port, pProxy );
 }
 
+/*
 #if !defined(_COMPATIBILITY_1) && !defined(_COMPATIBILITY_2)
 void SocketLayer::GetMyIP( char ipList[ 10 ][ 16 ] )
 {
@@ -594,6 +645,74 @@ void SocketLayer::GetMyIP( char ipList[ 10 ][ 16 ] )
 		//cout << "Address " << i << ": " << inet_ntoa(addr) << endl;
 		strcpy( ipList[ i ], inet_ntoa( addr ) );
 	}
+}
+#endif
+*/
+#if !defined(_COMPATIBILITY_1) && !defined(_COMPATIBILITY_2)
+void SocketLayer::GetMyIP( char ipList[ 10 ][ 16 ] )
+{
+    char ac[ 80 ]{};
+    struct addrinfo hints{}, *res = NULL, *p = NULL;
+    char ipstr[INET_ADDRSTRLEN]{};
+    int count = 0;
+
+	for (int i = 0; i < 10; i++) 
+        ipList[i][0] = '\0';
+    
+
+    if ( gethostname( ac, sizeof( ac ) ) == SOCKET_ERROR )
+    {
+    #if defined(_WIN32) && !defined(_COMPATIBILITY_1) && defined(_DEBUG)
+        DWORD dwIOError = GetLastError();
+        LPVOID messageBuffer;
+        FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL, dwIOError, MAKELANGID( LANG_NEUTRAL, SUBLANG_DEFAULT ),  // Default language
+            ( LPTSTR ) & messageBuffer, 0, NULL );
+        // something has gone wrong here...
+        printf( "gethostname failed:Error code - %d\n%s", dwIOError, messageBuffer );
+        //Free the buffer.
+        LocalFree( messageBuffer );
+    #endif
+        return;
+    }
+
+    hints.ai_family = AF_INET;
+
+    int status = getaddrinfo(ac, NULL, &hints, &res);
+    if (status != 0)
+    {
+    #if defined(_WIN32) && !defined(_COMPATIBILITY_1) && defined(_DEBUG)
+        #ifdef _WIN32
+            DWORD dwIOError = WSAGetLastError();
+        #else
+            DWORD dwIOError = errno;
+        #endif
+        LPVOID messageBuffer;
+        FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL, dwIOError, MAKELANGID( LANG_NEUTRAL, SUBLANG_DEFAULT ),
+            ( LPTSTR ) & messageBuffer, 0, NULL );
+        printf( "getaddrinfo failed: %s\nError code - %d\n%s", 
+                gai_strerror(status), dwIOError, messageBuffer );
+        LocalFree( messageBuffer );
+    #endif
+
+        return;
+    }
+
+    for (p = res; p != NULL && count < 10; p = p->ai_next)
+    {
+        if (p->ai_family == AF_INET)
+        {
+            struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+            void *addr = &(ipv4->sin_addr);
+            inet_ntop(AF_INET, addr, ipstr, sizeof(ipstr));
+            strncpy(ipList[count], ipstr, 15);
+            ipList[count][15] = '\0';
+            count++;
+        }
+    }
+
+    freeaddrinfo(res);
 }
 #endif
 
